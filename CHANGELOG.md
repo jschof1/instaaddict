@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.4.3 (2026-10-15) — Release Hygiene for Linux Deployment (Homelab B-77)
+
+Makes a clean install on Linux (Python 3.12) import and test fully, so the bot can be deployed to the R640 Android farm (VM 140) by tag.
+
+### Fixed
+- **Missing runtime dependencies (`requirements.txt`, `pyproject.toml`)**: added `google-generativeai`, `python-dotenv`, `pillow` and `matplotlib`; a clean install previously failed to import `InstaAddict.core.gemini_vision` (28 test modules could not be collected). Removed the stale `analytics = ["matplotlib==3.4.2"]` extra (no Python 3.12 wheels); `pytest` and `pytest-mock` added to `dev`.
+- **Fleet auto-tune import (`InstaAddict/core/multi_telemetry.py`)**: `apply_tuning_and_restart` imported the non-existent `InstaAddict.core.dogfood_optimizer` inside a try/except, so it silently did nothing; it now uses `InstaAddict.core.dogfood.DogfoodOptimizer` and applies the tuning before restarting the account.
+- **Version metadata**: removed the unused `InstaAddict/version.py` (said 1.3.0); README release badge now matches `__version__`.
+
+### Added
+- `test/test_release_hygiene.py`: dependency declarations, version consistency, and the fleet auto-tune path.
+
 ## v1.4.2 (2026-09-29) — Upload Mechanism Hardening, Scoped Storage Compliance & Bot Stopping Optimization
 
 Production hardening release remediating 8 architectural gaps and shortcuts in the automated upload pipeline (Audit #133, Review #065, Review #066), eliminating Home feed ad commenting risks, adding zero-dependency ISO BMFF MP4 header parsing, and hardening bot stopping and session recovery.

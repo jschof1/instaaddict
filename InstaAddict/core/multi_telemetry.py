@@ -151,9 +151,10 @@ class MultiAccountTelemetryAggregator:
         logger.info(f"Applying auto-tuning recommendations for @{clean_user}...")
 
         try:
-            from InstaAddict.core.dogfood_optimizer import DogfoodOptimizer
+            from InstaAddict.core.dogfood import DogfoodOptimizer
             optimizer = DogfoodOptimizer(clean_user)
-            report = optimizer.analyze()
+            optimizer.analyze()
+            optimizer.apply_tuning()
             # If recommendations were generated, log and reboot process
             logger.info(f"Dogfood optimization applied for @{clean_user}. Rebooting child process (GAP-10)...")
             if orchestrator and hasattr(orchestrator, "restart_account"):

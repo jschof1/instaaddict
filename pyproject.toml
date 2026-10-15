@@ -31,12 +31,15 @@ dependencies = [
     "standard-pkg-resources>=1.0.0",
     "imageio[ffmpeg]",
     "websocket-client",
-    "rich>=13.0.0"
+    "rich>=13.0.0",
+    "google-generativeai>=0.8",
+    "python-dotenv>=1.0",
+    "pillow>=10",
+    "matplotlib>=3.8"
 ]
 
 [project.optional-dependencies]
-analytics = ["matplotlib==3.4.2"]
-dev = ["flit", "pre-commit", "black", "flake8", "isort", "ruff"]
+dev = ["flit", "pre-commit", "black", "flake8", "isort", "ruff", "pytest", "pytest-mock"]
 
 [project.urls]
 Source = "https://github.com/ssucipto/instaaddict"

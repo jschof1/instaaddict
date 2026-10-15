@@ -9,7 +9,7 @@
       <img src="https://img.shields.io/github/license/ssucipto/instaaddict?style=flat" alt="license"/>
     </a>
     <a href="https://github.com/ssucipto/instaaddict/releases">
-      <img src="https://img.shields.io/badge/release-v1.3.0-blue?style=flat" alt="release"/>
+      <img src="https://img.shields.io/badge/release-v1.4.3-blue?style=flat" alt="release"/>
     </a>
     <a href="https://www.python.org/">
       <img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-red.svg?style=flat" alt="Python"/>
