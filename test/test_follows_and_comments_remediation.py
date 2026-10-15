@@ -3,7 +3,12 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from InstaAddict.core.filter import Filter
-from InstaAddict.core.gemini_vision import _sanitize_response, get_active_persona
+from InstaAddict.core.gemini_vision import (
+    FALLBACK_COMMENTS_BY_SENTIMENT,
+    SENTIMENT_APPRECIATIVE,
+    _sanitize_response,
+    get_active_persona,
+)
 from InstaAddict.core.interaction import load_random_comment
 from InstaAddict.core.views import MediaType
 
@@ -111,14 +116,18 @@ class TestDefaultCommentsAussieVoice(unittest.TestCase):
             self.assertNotIn("–", comment)
 
     def test_default_comments_have_aussie_vernacular(self):
-        with patch("InstaAddict.core.interaction._load_and_clean_txt_file", return_value=[]):
+        # Deterministic: with no comments file and no caption every comment comes from the APPRECIATIVE fallback
+        # pool, so the flavour is checked on the pool itself (a 30-comment random draw missed it in ~8% of runs).
+        aussie_tokens = ["Ripper", "mate", "Heaps", "Reckon", "champion", "legend"]
+        pool = FALLBACK_COMMENTS_BY_SENTIMENT[SENTIMENT_APPRECIATIVE]
+        self.assertTrue(
+            any(any(token in line for token in aussie_tokens) for line in pool),
+            "Default comments must feature authentic subtle Aussie flavour",
+        )
+        with patch("InstaAddict.core.interaction._load_and_clean_txt_file", return_value=[]), \
+                patch("InstaAddict.core.interaction.CommentMemory.get_instance", side_effect=RuntimeError("no memory")):
             samples = {load_random_comment("testuser", MediaType.PHOTO) for _ in range(30)}
-            aussie_tokens = ["Ripper", "mate", "Heaps", "Reckon", "champion", "legend"]
-            has_aussie_token = any(
-                any(token in sample for token in aussie_tokens)
-                for sample in samples
-            )
-            self.assertTrue(has_aussie_token, "Default comments must feature authentic subtle Aussie flavour")
+        self.assertTrue(samples <= set(pool), "fallback comments must come from the appreciative pool")
 
 
 class TestReelsFollowInteraction(unittest.TestCase):

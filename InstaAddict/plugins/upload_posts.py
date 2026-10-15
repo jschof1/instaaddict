@@ -190,8 +190,9 @@ class UploadPostsPlugin(Plugin):
             config_path = str(configs.args.config)
 
         if config_path:
-            norm_path = os.path.normpath(config_path)
-            parts = norm_path.split(os.sep)
+            # Accept both separators on every OS (a Windows-style path read on Linux, and vice versa)
+            norm_path = os.path.normpath(config_path.replace("\\", "/"))
+            parts = re.split(r"[\\/]", norm_path)
             if "accounts" in parts:
                 idx = parts.index("accounts")
                 if idx + 1 < len(parts):

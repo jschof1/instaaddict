@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.4.4 (2026-10-15) — Linux Path Handling (Homelab B-77)
+
+### Fixed
+- **Upload username from the config path (`InstaAddict/plugins/upload_posts.py`)**: `_resolve_username` split the `--config` path on `os.sep` only, so on Linux a Windows-style path (`accounts\cat_account\config.yml`) gave an empty username. It now accepts both separators on every OS. Found by the Linux pytest gate on the R640 farm (VM 140); the suite now passes on Linux and Windows.
+- **Flaky Aussie-voice test (`test/test_follows_and_comments_remediation.py`)**: it drew 30 random fallback comments and failed in about 8% of runs (166 of 2000) when none of the few flavoured lines came up. It now checks the appreciative fallback pool directly and that the drawn comments come from it, with the comment memory switched off. The farm's update gate runs the full suite, so a random failure would have refused a good release.
+
 ## v1.4.3 (2026-10-15) — Release Hygiene for Linux Deployment (Homelab B-77)
 
 Makes a clean install on Linux (Python 3.12) import and test fully, so the bot can be deployed to the R640 Android farm (VM 140) by tag.
