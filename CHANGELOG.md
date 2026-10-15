@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.4.5 (2026-10-15) — Run Under systemd (Homelab B-77)
+
+### Fixed
+- **`--no-supervisor` was rejected (`InstaAddict/core/config.py`)**: `run.py run --config ... --no-supervisor` printed the help with "Unknown arguments: --no-supervisor" and exited 0, because the bot's own parser re-reads the command line and only ignored `run`. The launcher flags of the `run` subcommand are now ignored there too. This is how the R640 farm's `instaaddict@USER` systemd unit starts the bot (systemd restarts it, not the app's loop).
+
+### Added
+- `test_config_accepts_launcher_flags`: the real plugin parser accepts the systemd command line.
+
 ## v1.4.4 (2026-10-15) — Linux Path Handling (Homelab B-77)
 
 ### Fixed

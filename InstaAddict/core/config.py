@@ -11,6 +11,9 @@ from InstaAddict.core.plugin_loader import PluginLoader
 
 logger = logging.getLogger(__name__)
 
+# Handled by the 'run' subcommand in InstaAddict/__main__.py (systemd runs the bot with --no-supervisor)
+LAUNCHER_ARGS = ("run", "--no-supervisor")
+
 
 class Config:
     def __init__(self, first_run=False, **kwargs):
@@ -197,8 +200,10 @@ class Config:
             self.args, self.unknown_args = self.parser.parse_known_args(args=arg_str)
         else:
             self.args, self.unknown_args = self.parser.parse_known_args()
-        if "run" in self.unknown_args:
-            self.unknown_args.remove("run")
+        # The 'run' subcommand and its launcher flags are parsed in __main__.py, not here: ignore them
+        for launcher_arg in LAUNCHER_ARGS:
+            while launcher_arg in self.unknown_args:
+                self.unknown_args.remove(launcher_arg)
         if self.unknown_args and self.first_run:
             logger.error(
                 "Unknown arguments: " + ", ".join(str(arg) for arg in self.unknown_args)

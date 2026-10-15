@@ -12,6 +12,20 @@ import InstaAddict.core.views as views
 from InstaAddict.plugins.data_analytics import DataAnalytics
 
 
+def test_config_accepts_launcher_flags(tmp_path):
+    """systemd starts the bot as 'run.py run --config ... --no-supervisor': the bot's own parser must accept that
+    instead of printing the help and exiting (exit 0, so systemd never restarted it)."""
+    cfg = tmp_path / "config.yml"
+    cfg.write_text("username: launchertest\ndevice: 127.0.0.1:5555\n", encoding="utf-8")
+    argv = ["run.py", "run", "--config", str(cfg), "--no-supervisor"]
+    with patch("sys.argv", argv):
+        config = Config(first_run=True)
+        config.load_plugins()
+        config.parse_args()  # exits (SystemExit) on unknown arguments
+    assert config.unknown_args == []
+    assert config.device_id == "127.0.0.1:5555"
+
+
 def test_config_duplicate_argument_graceful():
     """Verify that duplicate arguments across plugins are safely skipped without ArgumentError."""
     config = Config(first_run=True)
