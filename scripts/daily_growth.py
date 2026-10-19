@@ -20,6 +20,9 @@ import threading
 import time
 from zoneinfo import ZoneInfo
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import public_comments
+
 UK = ZoneInfo("Europe/London")
 HANDLE = re.compile(r"[a-z0-9_][a-z0-9_.]{0,29}\Z")
 STOP = re.compile(
@@ -178,6 +181,74 @@ def stop_process(proc):
             return
 
 
+def saved_bot_job(account, growth, config_path, day):
+    sessions = read_json(account / "sessions.json", [])
+    daily_totals(sessions, day)
+    previous = {s["id"] for s in read_json(growth / "sessions-before.json", [])}
+    relevant = [s for s in sessions if s["id"] not in previous and s.get("args", {}).get("config") == str(config_path)]
+    if len(relevant) != 1:
+        raise ValueError("Expected one new matching saved bot job")
+    for session in relevant:
+        start = datetime.fromisoformat(session["start_time"])
+        finish = datetime.fromisoformat(session["finish_time"])
+        start = start.replace(tzinfo=UK) if start.tzinfo is None else start.astimezone(UK)
+        finish = finish.replace(tzinfo=UK) if finish.tzinfo is None else finish.astimezone(UK)
+        if start.date().isoformat() != day or finish < start:
+            raise ValueError("Saved bot job does not belong to this UK day")
+        if (session.get("total_crashes", 0) or session.get("total_watchdog_recoveries", 0)
+                or session.get("job_metrics", {}).get("blogger", {}).get("status") != "completed"):
+            raise ValueError("Bot job did not complete without recovery")
+        if any(session.get(field, 0) for field in ("total_comments", "total_pm", "total_unfollowed", "total_uploads_success")):
+            raise ValueError("Unexpected messaging, unfollow or publishing action")
+    return relevant
+
+
+def run_comment_phase(repo, account, growth, day, env, vm, started, log):
+    status, pending, _ = public_comments.plan(growth, day)
+    if status["reviewRequired"]:
+        raise ValueError("Uncertain comment intent requires review")
+    if not status["enabled"] or not status["remaining"] or not pending:
+        return status
+    if account.name != public_comments.ACCOUNT:
+        raise ValueError("Prepared comments support only uk.tradeleads")
+    phase_started = time.monotonic()
+
+    def check():
+        if (growth / "paused.json").exists():
+            raise RuntimeError("Paused by operator")
+        if datetime.now(UK).date().isoformat() != day:
+            raise RuntimeError("Comment phase reached the next UK day")
+        if vm.poll() is not None:
+            raise RuntimeError("Emulator exited during comments")
+        if time.monotonic() - phase_started >= 180 or time.monotonic() - started >= 1440:
+            raise RuntimeError("Comment phase time limit")
+        if shutil.disk_usage(repo).free < 3 * GIB:
+            raise RuntimeError("Disk reserve reached during comments")
+        if log.tell() > 10 * 1024 * 1024:
+            raise RuntimeError("Log size limit")
+
+    check()
+    helper = subprocess.Popen([str(repo / ".venv/bin/python"), "-u", str(repo / "scripts/public_comments.py"),
+                               "--account", account.name, "--day", day, "--repo", str(repo)],
+                              cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=log,
+                              stderr=subprocess.STDOUT, start_new_session=True)
+    try:
+        while True:
+            check()
+            if helper.poll() is not None:
+                break
+            time.sleep(1)
+        if helper.returncode != 0:
+            raise RuntimeError("Comment helper exited unsuccessfully")
+    finally:
+        stop_process(helper)
+        public_comments.recover_reservations(growth)
+    status = public_comments.plan(growth, day)[0]
+    if status["reviewRequired"]:
+        raise ValueError("Uncertain comment intent requires review")
+    return status
+
+
 def run_session(repo, account, growth):
     import yaml
     day = datetime.now(UK).date().isoformat()
@@ -196,10 +267,18 @@ def run_session(repo, account, growth):
     if settings != {"dailyFollows": 5, "dailyLikes": 10, "timezone": "Europe/London"}:
         raise ValueError("Unexpected daily settings")
     totals = accounting_totals(read_json(account / "sessions.json", []), day, journals)
+    if totals["follows"] > 5 or totals["likes"] > 10:
+        raise ValueError("Daily action limit already exceeded")
     follows, likes = max(0, 5 - totals["follows"]), max(0, 10 - totals["likes"])
-    targets = select_targets(read_json(growth / "queue.json"), read_json(account / "interacted_users.json", {}), journals, account.name, min(follows, likes))
-    if not targets:
-        write_json(state_path, {"status": "queue_empty_or_budget_used", "checkedAt": now(), "totals": totals})
+    targets = select_targets(read_json(growth / "queue.json", {"targets": []}), read_json(account / "interacted_users.json", {}), journals, account.name, min(follows, likes))
+    public_comments.recover_reservations(growth)
+    comments, pending_comments, _ = public_comments.plan(growth, day)
+    if comments["reviewRequired"]:
+        raise ValueError("Uncertain comment intent requires review")
+    if comments["enabled"] and account.name != public_comments.ACCOUNT:
+        raise ValueError("Prepared comments support only uk.tradeleads")
+    if not targets and not (comments["enabled"] and comments["remaining"] and pending_comments):
+        write_json(state_path, {"status": "queue_empty_or_budget_used", "checkedAt": now(), "totals": totals, "comments": comments})
         print("No fresh targets or daily budget remains. Refill the reviewed queue when empty.")
         return 0
     free = shutil.disk_usage(repo).free
@@ -226,13 +305,15 @@ def run_session(repo, account, growth):
         raise ValueError("Account filters allow comments or private messages")
     if any(filters.get(key) is not True for key in ("skip_if_private", "skip_following", "skip_follower")) or filters.get("follow_private_or_empty") is not False:
         raise ValueError("Account filters must skip private and existing connections")
-    conf = bot_config(account.name, targets, follows, likes)
-    config_path = growth / (datetime.now(UK).strftime("%Y-%m-%d-%H%M%S") + ".yml")
-    # JSON arrays are also YAML flow arrays accepted by ConfigArgParse.
-    config_path.write_text("\n".join(key + ": " + json.dumps(value) for key, value in conf.items()) + "\n")
-    os.chmod(config_path, 0o600)
-    preflight(repo, config_path)
-    journal = {"day": day, "startedAt": now(), "status": "running", "targets": targets, "config": str(config_path), "budgetBefore": totals, "limits": {"follows": follows, "likes": likes}}
+    config_path = None
+    if targets:
+        conf = bot_config(account.name, targets, follows, likes)
+        config_path = growth / (datetime.now(UK).strftime("%Y-%m-%d-%H%M%S") + ".yml")
+        # JSON arrays are also YAML flow arrays accepted by ConfigArgParse.
+        config_path.write_text("\n".join(key + ": " + json.dumps(value) for key, value in conf.items()) + "\n")
+        os.chmod(config_path, 0o600)
+        preflight(repo, config_path)
+    journal = {"day": day, "startedAt": now(), "status": "running", "targets": targets, "config": str(config_path) if config_path else None, "budgetBefore": totals, "limits": {"follows": follows, "likes": likes}, "comments": comments}
     write_json(journal_path, journal)
     write_json(state_path, journal)
     vm = bot = caffeinate = None
@@ -267,47 +348,55 @@ def run_session(repo, account, growth):
                 except (subprocess.SubprocessError, OSError):
                     pass
                 time.sleep(3)
-            bot = subprocess.Popen([str(repo / ".venv/bin/python"), "-u", "run.py", "--config", str(config_path)], cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
-            lines = queue.Queue()
-            def drain():
-                for line in bot.stdout:
-                    lines.put(line)
-                lines.put(None)
-            threading.Thread(target=drain, daemon=True).start()
-            bot_started = time.monotonic()
-            ended = False
-            while not ended:
-                try:
-                    line = lines.get(timeout=2)
-                    if line is None:
-                        ended = True
-                    else:
-                        log.write(line)
-                        print(line, end="", flush=True)
-                        followed = re.search(r"\bFollowed @([a-z0-9_.]+)\b", line)
-                        if followed:
-                            observed = journal.setdefault("observedFollowHandles", [])
-                            if followed.group(1) not in observed:
-                                observed.append(followed.group(1))
-                                write_json(journal_path, journal)
-                        if STOP.search(line):
-                            raise RuntimeError("Bot stop condition: " + line.strip()[-300:])
-                except queue.Empty:
-                    pass
-                if (growth / "paused.json").exists():
-                    raise RuntimeError("Paused by operator")
-                if vm.poll() is not None:
-                    raise RuntimeError("Emulator exited during the bot session")
-                if datetime.now(UK).date().isoformat() != day:
-                    raise RuntimeError("Session reached the next UK day")
-                if time.monotonic() - bot_started > 1200 or time.monotonic() - started > 1440:
-                    raise RuntimeError("Session time limit")
-                if shutil.disk_usage(repo).free < 3 * GIB:
-                    raise RuntimeError("Disk reserve reached")
-                if log.tell() > 10 * 1024 * 1024:
-                    raise RuntimeError("Log size limit")
-            if bot.wait(timeout=10) != 0:
-                raise RuntimeError("Bot exited unsuccessfully: " + str(bot.returncode))
+            if targets:
+                bot = subprocess.Popen([str(repo / ".venv/bin/python"), "-u", "run.py", "--config", str(config_path)], cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+                lines = queue.Queue()
+                def drain():
+                    for line in bot.stdout:
+                        lines.put(line)
+                    lines.put(None)
+                threading.Thread(target=drain, daemon=True).start()
+                bot_started = time.monotonic()
+                ended = False
+                while not ended:
+                    try:
+                        line = lines.get(timeout=2)
+                        if line is None:
+                            ended = True
+                        else:
+                            log.write(line)
+                            print(line, end="", flush=True)
+                            followed = re.search(r"\bFollowed @([a-z0-9_.]+)\b", line)
+                            if followed:
+                                observed = journal.setdefault("observedFollowHandles", [])
+                                if followed.group(1) not in observed:
+                                    observed.append(followed.group(1))
+                                    write_json(journal_path, journal)
+                            if STOP.search(line):
+                                raise RuntimeError("Bot stop condition: " + line.strip()[-300:])
+                    except queue.Empty:
+                        pass
+                    if (growth / "paused.json").exists():
+                        raise RuntimeError("Paused by operator")
+                    if vm.poll() is not None:
+                        raise RuntimeError("Emulator exited during the bot session")
+                    if datetime.now(UK).date().isoformat() != day:
+                        raise RuntimeError("Session reached the next UK day")
+                    if time.monotonic() - bot_started > 1200 or time.monotonic() - started > 1440:
+                        raise RuntimeError("Session time limit")
+                    if shutil.disk_usage(repo).free < 3 * GIB:
+                        raise RuntimeError("Disk reserve reached")
+                    if log.tell() > 10 * 1024 * 1024:
+                        raise RuntimeError("Log size limit")
+                if bot.wait(timeout=10) != 0:
+                    raise RuntimeError("Bot exited unsuccessfully: " + str(bot.returncode))
+                relevant = saved_bot_job(account, growth, config_path, day)
+                journal["sessionIds"] = [s["id"] for s in relevant]
+                write_json(journal_path, journal)
+                after = accounting_totals(read_json(account / "sessions.json", []), day, journals + [journal])
+                if after["follows"] > 5 or after["likes"] > 10:
+                    raise ValueError("Daily action limit exceeded")
+            journal["comments"] = run_comment_phase(repo, account, growth, day, env, vm, started, log)
     except BaseException as exc:
         problem = str(exc) or type(exc).__name__
     finally:
@@ -330,7 +419,7 @@ def run_session(repo, account, growth):
         try:
             new_sessions = [s for s in read_json(account / "sessions.json", []) if s["id"] not in {old["id"] for old in read_json(growth / "sessions-before.json", [])}]
             # A clean process exit alone is insufficient evidence of a completed job.
-            relevant = [s for s in new_sessions if s.get("args", {}).get("config") == str(config_path)]
+            relevant = [s for s in new_sessions if config_path and s.get("args", {}).get("config") == str(config_path)]
             journal["sessionIds"] = [s["id"] for s in relevant]
             sessions = read_json(account / "sessions.json", [])
             after = accounting_totals(sessions, day, journals + [journal])
@@ -338,10 +427,14 @@ def run_session(repo, account, growth):
             journal["botRecordedActions"] = {"follows": sum(s["total_followed"] for s in relevant), "likes": sum(s["total_likes"] for s in relevant)}
             if after["follows"] > 5 or after["likes"] > 10:
                 raise ValueError("Daily action limit exceeded")
-            if not manual_pause and (not relevant or any(s.get("total_crashes", 0) or s.get("total_watchdog_recoveries", 0) or s.get("job_metrics", {}).get("blogger", {}).get("status") != "completed" for s in relevant)):
-                raise ValueError("Bot job did not complete without recovery")
+            if config_path and not manual_pause:
+                saved_bot_job(account, growth, config_path, day)
             if any(s.get(field, 0) for s in relevant for field in ("total_comments", "total_pm", "total_unfollowed", "total_uploads_success")):
                 raise ValueError("Unexpected messaging, unfollow or publishing action")
+            public_comments.recover_reservations(growth)
+            journal["comments"] = public_comments.plan(growth, day)[0]
+            if journal["comments"]["reviewRequired"]:
+                raise ValueError("Uncertain comment intent requires review")
         except Exception as exc:
             journal["status"] = "fault"
             journal["problem"] = journal["problem"] or str(exc)
@@ -374,7 +467,7 @@ def main():
     if args.command == "status":
         journals = [read_json(p) for p in (growth / "days").glob("*.json")]
         pending = select_targets(read_json(growth / "queue.json", {"targets": []}), read_json(account / "interacted_users.json", {}), journals, args.account, 10000)
-        print(json.dumps({"paused": (growth / "paused.json").exists(), "fault": read_json(growth / "fault.json"), "latest": read_json(growth / "state.json"), "pendingProfiles": len(pending)}, indent=2))
+        print(json.dumps({"paused": (growth / "paused.json").exists(), "fault": read_json(growth / "fault.json"), "latest": read_json(growth / "state.json"), "pendingProfiles": len(pending), "comments": public_comments.plan(growth)[0]}, indent=2))
         return 0
     if args.command == "pause":
         write_json(growth / "paused.json", {"at": now()})
