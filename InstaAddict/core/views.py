@@ -22,6 +22,7 @@ from InstaAddict.core.device_facade import (
 from InstaAddict.core.resources import ClassName
 from InstaAddict.core.resources import ResourceID as resources
 from InstaAddict.core.resources import TabBarText
+from InstaAddict.core.watchdog import record_heartbeat
 from InstaAddict.core.utils import (
     ActionBlockedError,
     EmptyList,
@@ -255,6 +256,12 @@ class TabBarView:
             return obj
         return None
 
+    def _require_tab_bar(self):
+        if not self.is_tab_bar_visible() and not self._escape_subscreens():
+            raise DeviceFacade.JsonRpcError(
+                "Tab bar unavailable after bounded subscreen recovery."
+            )
+
     def _navigateTo(self, tab: TabBarTabs):
         tab_name = tab.name
         logger.debug(f"Navigate to {tab_name}")
@@ -269,8 +276,7 @@ class TabBarView:
 
         # Ensure tab bar is visible before attempting tab lookup
         try:
-            if not self.is_tab_bar_visible():
-                self._escape_subscreens()
+            self._require_tab_bar()
         except DeviceFacade.AppHasCrashed:
             from InstaAddict.core.utils import open_instagram
 
@@ -279,7 +285,7 @@ class TabBarView:
             )
             open_instagram(self.device)
             random_sleep(1.5, 2.5, modulable=False)
-            self._escape_subscreens()
+            self._require_tab_bar()
 
         if tab == TabBarTabs.HOME:
             button = self.device.find(resourceIdMatches=ResourceID.FEED_TAB)
@@ -300,7 +306,7 @@ class TabBarView:
             if not button.exists():
                 # If still not found, check if we are stuck on a subscreen and attempt escape
                 if not self.is_tab_bar_visible():
-                    self._escape_subscreens()
+                    self._require_tab_bar()
                     button = self.device.find(resourceIdMatches=ResourceID.SEARCH_TAB)
                     if not button.exists():
                         button = self.device.find(
@@ -353,7 +359,7 @@ class TabBarView:
             if UniversalActions.dismiss_dialog(self.device):
                 logger.info(f"Dismissed popup during navigation to {tab_name}. Retrying tab lookup...")
             if not self.is_tab_bar_visible():
-                self._escape_subscreens()
+                self._require_tab_bar()
             if tab == TabBarTabs.PROFILE:
                 button = self.device.find(resourceIdMatches=ResourceID.PROFILE_TAB)
                 if not button.exists():
@@ -398,13 +404,13 @@ class TabBarView:
                 )
 
         if button is not None and button.exists(Timeout.MEDIUM):
-            # Two clicks to reset tab content
+            # Instagram 451 can replace the tab bar after this tap. Reusing the
+            # selector for a second click can hit a missing or different control.
             button.click(sleep=SleepTime.SHORT)
-            if tab is not TabBarTabs.PROFILE:
-                button.click(sleep=SleepTime.SHORT)
             return
 
         logger.error(f"Didn't find tab {tab_name} in the tab bar...")
+        raise DeviceFacade.JsonRpcError(f"Navigation target {tab_name} unavailable.")
 
 
 class ActionBarView:
@@ -2445,6 +2451,7 @@ class OpenedPostView:
                 "|".join(
                     [
                         ResourceID.MEDIA_CONTAINER,
+                        ResourceID.ROW_FEED_PHOTO_IMAGEVIEW,
                         ResourceID.VIDEO_CONTAINER_AND_CLIPS_VIDEO_CONTAINER,
                         ResourceID.ROW_FEED_BUTTON_LIKE,
                         ResourceID.LIKE_BUTTON,
@@ -2459,47 +2466,44 @@ class OpenedPostView:
         return post_media.exists(Timeout.MEDIUM)
 
     def is_peek_preview_opened(self) -> bool:
-        """Confirm if Instagram's 3D Touch / long-press Peek Preview popup is open.
-        This popup displays a floating preview card with a context menu containing
-        options like Repost, Report, Like/Unlike.
-        Note: Standard Reels and Feed posts also contain Like, Comment, and Share.
-        To completely prevent false-positive detection on normal content, (Repost|Report)
-        is strictly required as the identifying context marker."""
+        """Require text options in a vertical menu, not ordinary post icons."""
         try:
             if hasattr(self.device, "_ig_is_opened") and not self.device._ig_is_opened():
                 return False
-
-            # 1. Distinctive Peek Preview options (Repost and Report in popup context menus)
-            distinct_opt = self.device.find(
-                textMatches=case_insensitive_re(r"^\s*(Repost|Report)\s*$"),
-            )
-            if not distinct_opt.exists(Timeout.ZERO):
-                distinct_opt = self.device.find(
-                    descriptionMatches=case_insensitive_re(r"^\s*(Repost|Report)\s*$"),
+            post_actions = self.device.find(
+                resourceIdMatches=case_insensitive_re(
+                    f"{ResourceID.ROW_FEED_BUTTON_LIKE}|{ResourceID.LIKE_BUTTON}"
                 )
-            if distinct_opt.exists(Timeout.ZERO):
-                return True
-
-            # 2. Context options: Like/Unlike alongside Repost/Report
+            )
+            if post_actions.exists(Timeout.ZERO):
+                return False
             like_btn = self.device.find(
                 textMatches=case_insensitive_re(r"^\s*(Like|Unlike)\s*$"),
+                className=ClassName.TEXT_VIEW,
             )
             if not like_btn.exists(Timeout.ZERO):
-                like_btn = self.device.find(
-                    descriptionMatches=case_insensitive_re(r"^\s*(Like|Unlike)\s*$"),
-                )
-
+                return False
             context_opt = self.device.find(
                 textMatches=case_insensitive_re(r"^\s*(Repost|Report)\s*$"),
+                className=ClassName.TEXT_VIEW,
             )
             if not context_opt.exists(Timeout.ZERO):
-                context_opt = self.device.find(
-                    descriptionMatches=case_insensitive_re(r"^\s*(Repost|Report)\s*$"),
-                )
-
-            if like_btn.exists(Timeout.ZERO) and context_opt.exists(Timeout.ZERO):
-                return True
-            return False
+                return False
+            like_bounds = like_btn.get_bounds()
+            context_bounds = context_opt.get_bounds()
+            like_height = like_bounds["bottom"] - like_bounds["top"]
+            context_height = context_bounds["bottom"] - context_bounds["top"]
+            overlap = min(like_bounds["right"], context_bounds["right"]) - max(
+                like_bounds["left"], context_bounds["left"]
+            )
+            gap = max(like_bounds["top"], context_bounds["top"]) - min(
+                like_bounds["bottom"], context_bounds["bottom"]
+            )
+            return (
+                min(like_height, context_height) > 0
+                and overlap > 0
+                and 0 <= gap <= 6 * max(like_height, context_height)
+            )
         except DeviceFacade.AppHasCrashed:
             return False
         except Exception as e:
@@ -2525,6 +2529,8 @@ class OpenedPostView:
     def like_in_peek(self) -> bool:
         """Perform a like directly from the Peek Preview context menu."""
         try:
+            if not self.is_peek_preview_opened():
+                return False
             if self.is_peek_already_liked():
                 logger.info("Post already liked (detected via Peek Preview menu)!")
                 return True
@@ -2543,6 +2549,8 @@ class OpenedPostView:
                 return True
             logger.warning("Like button not found in Peek Preview menu!")
             return False
+        except ActionBlockedError:
+            raise
         except DeviceFacade.AppHasCrashed:
             return False
         except Exception as e:
@@ -2550,22 +2558,13 @@ class OpenedPostView:
             return False
 
     def dismiss_peek(self) -> bool:
-        """Cleanly and immediately dismiss the Peek Preview and return to profile grid."""
+        """Dismiss one confirmed overlay without backing out of the next screen."""
         try:
+            if not self.is_peek_preview_opened():
+                return True
             logger.debug("Dismissing Peek Preview...")
-            for _ in range(2):
-                self.device.back()
-                random_sleep(0.5, 1.0, modulable=False)
-                if not self.is_peek_preview_opened():
-                    return True
-            # If back key did not clear the overlay, tap outside the modal card (top margin)
-            try:
-                info = self.device.get_info()
-                w, h = info["displayWidth"], info["displayHeight"]
-                self.device.deviceV2.click(w // 2, int(h * 0.05))
-                random_sleep(0.5, 1.0, modulable=False)
-            except Exception:
-                pass
+            self.device.back()
+            random_sleep(0.5, 1.0, modulable=False)
             return not self.is_peek_preview_opened()
         except DeviceFacade.AppHasCrashed:
             return False
@@ -2888,48 +2887,147 @@ class PostsGridView:
         )
         return profile_tabs.exists(Timeout.SHORT)
 
+    def _get_visible_post_rows(self):
+        """Resolve visible three-column thumbnails without assuming a header count.
+
+        A single hierarchy snapshot also handles nested, descriptionless cells in
+        Instagram 451. Reject headers and clipped cells before choosing tap bounds.
+        """
+        try:
+            root = ET.fromstring(self.device.deviceV2.dump_hierarchy())
+        except Exception as e:
+            logger.debug(f"Can't read profile grid hierarchy: {e}")
+            return []
+        tabs_bottom = max(
+            (
+                bounds["bottom"]
+                for node in root.iter("node")
+                if re.fullmatch(
+                    ResourceID.PROFILE_TABS_CONTAINER, node.get("resource-id", "")
+                )
+                for bounds in [PostsViewList._bounds_from_xml_node(node)]
+                if bounds is not None
+            ),
+            default=0,
+        )
+        for grid in root.iter("node"):
+            if grid.get("resource-id") != ResourceID.LIST:
+                continue
+            grid_bounds = PostsViewList._bounds_from_xml_node(grid)
+            if not grid_bounds:
+                continue
+            cell_width = (grid_bounds["right"] - grid_bounds["left"]) / 3
+            if cell_width <= 0:
+                continue
+            rows = {}
+            for node in grid.iter("node"):
+                if not re.fullmatch(r"\[\d+,\d+\]\[\d+,\d+\]", node.get("bounds", "")):
+                    continue
+                bounds = PostsViewList._bounds_from_xml_node(node)
+                if not bounds or node.get("visible-to-user") == "false":
+                    continue
+                width = bounds["right"] - bounds["left"]
+                height = bounds["bottom"] - bounds["top"]
+                if not (
+                    0.8 * cell_width <= width <= 1.1 * cell_width
+                    and 0.75 * width <= height <= 1.8 * width
+                ):
+                    continue
+                if (
+                    bounds["top"] < max(grid_bounds["top"], tabs_bottom)
+                    or bounds["bottom"] > grid_bounds["bottom"]
+                    or bounds["left"] < grid_bounds["left"]
+                    or bounds["right"] > grid_bounds["right"]
+                ):
+                    continue
+                col = round((bounds["left"] - grid_bounds["left"]) / cell_width)
+                if col not in range(3) or abs(
+                    bounds["left"] - grid_bounds["left"] - col * cell_width
+                ) > 0.1 * cell_width:
+                    continue
+                cells = rows.setdefault(bounds["top"], {})
+                previous = cells.get(col)
+                if previous is None or height > previous[0]["bottom"] - previous[0]["top"]:
+                    cells[col] = (bounds, node.get("content-desc", ""))
+                elif not previous[1] and node.get("content-desc"):
+                    cells[col] = (previous[0], node.get("content-desc"))
+            # Bounds are clipped to the RecyclerView viewport on IG 451. A
+            # portrait thumbnail clipped to square still passes the aspect check.
+            # Infer the full height from the largest consistent multi-cell row.
+            consistent_heights = []
+            for cells in rows.values():
+                heights = [b["bottom"] - b["top"] for b, _ in cells.values()]
+                if len(heights) >= 2 and max(heights) - min(heights) <= 3:
+                    consistent_heights.append(max(heights))
+            full_height = max(consistent_heights, default=0)
+            return [
+                cells for _, cells in sorted(rows.items())
+                if set(cells) == set(range(len(cells)))
+                and all(
+                    b["bottom"] - b["top"] >= full_height - 3
+                    for b, _ in cells.values()
+                )
+            ]
+        return []
+
+    def return_to_profile(self, max_attempts=3) -> bool:
+        """Check after each Back; never send another Back after a dismissal worked."""
+        record_heartbeat("post_return", "Returning to profile")
+        for _ in range(max_attempts):
+            if hasattr(self.device, "_ig_is_opened") and not self.device._ig_is_opened():
+                return False
+            opened_post = OpenedPostView(self.device)
+            is_peek = opened_post.is_peek_preview_opened()
+            if self._is_still_on_profile() and not is_peek:
+                record_heartbeat("post_return", "Profile confirmed")
+                return True
+            if is_peek:
+                if not opened_post.dismiss_peek():
+                    return False
+            else:
+                self.device.back()
+                random_sleep(0.5, 1.0, modulable=False)
+        returned = (
+            self._is_still_on_profile()
+            and not OpenedPostView(self.device).is_peek_preview_opened()
+        )
+        if returned:
+            record_heartbeat("post_return", "Profile confirmed")
+        return returned
+
     def navigateToPost(self, row, col):
         from InstaAddict.core.telemetry import PerformanceTracker
 
         with PerformanceTracker.get_instance().measure("view", "post_open"):
-            post_list_view = self._get_post_view()
-            post_list_view.wait(Timeout.MEDIUM)
-            OFFSET = 1  # row with post starts from index 1
-            row_view = post_list_view.child(index=row + OFFSET)
-            if not row_view.exists():
+            if row < 0 or col not in range(3):
                 return None, None, None
-            post_view = row_view.child(index=col)
-            if not post_view.exists():
-                return None, None, None
-            content_desc = post_view.ui_info()["contentDescription"]
-            media_type, obj_count = PostsViewList.detect_media_type(content_desc)
+            record_heartbeat("post_navigation", f"Opening post at {row}, {col}")
+            self._get_post_view().wait(Timeout.MEDIUM)
             opened_post_view = OpenedPostView(self.device)
             for attempt in range(2):
-                # Fast, crisp tap: calculate center coordinates to avoid lingering touches triggering Peek Preview
-                try:
-                    bounds = post_view.get_bounds()
-                    x_center = (bounds["left"] + bounds["right"]) // 2
-                    y_center = (bounds["top"] + bounds["bottom"]) // 2
-                    self.device.deviceV2.click(x_center, y_center)
-                except Exception:
-                    post_view.click()
+                rows = self._get_visible_post_rows()
+                if row >= len(rows) or col not in rows[row]:
+                    return None, None, None
+                bounds, content_desc = rows[row][col]
+                media_type, obj_count = PostsViewList.detect_media_type(content_desc or "")
+                x_center = (bounds["left"] + bounds["right"]) // 2
+                y_center = (bounds["top"] + bounds["bottom"]) // 2
+                self.device.deviceV2.click(x_center, y_center)
 
                 if opened_post_view.is_peek_preview_opened():
                     logger.info("Peek Preview detected on post thumbnail.")
                     opened_post_view.is_peek = True
+                    record_heartbeat("post_navigation", "Peek preview confirmed")
                     return opened_post_view, media_type, obj_count
-                if opened_post_view.is_post_opened() or not self._is_still_on_profile():
+                if opened_post_view.is_post_opened():
+                    record_heartbeat("post_navigation", "Opened post confirmed")
                     return opened_post_view, media_type, obj_count
+                # An unexpected screen is not proof of an opened post. Only
+                # retry a tap while the original grid is still visible.
+                if not self._is_still_on_profile():
+                    break
                 if attempt == 0:
                     logger.debug("Post didn't open, trying one more click...")
-                    # Re-resolve both row_view and post_view — the recycler may have
-                    # re-bound the previous child reference after a layout pass.
-                    row_view = post_list_view.child(index=row + OFFSET)
-                    if not row_view.exists():
-                        break
-                    post_view = row_view.child(index=col)
-                    if not post_view.exists():
-                        break
             logger.debug(
                 f"Click on row {row}, column {col} didn't open any post (empty grid slot?)."
             )
@@ -3307,23 +3405,16 @@ class ProfileView(ActionBarView):
 
     def count_photo_in_view(self) -> Tuple[int, int]:
         """return rows filled and the number of post in the last row"""
-        views = f"({ClassName.RECYCLER_VIEW}|{ClassName.VIEW})"
-        grid_post = self.device.find(
-            classNameMatches=views, resourceIdMatches=ResourceID.LIST
-        )
-        if not grid_post.exists(Timeout.MEDIUM):
+        grid = PostsGridView(self.device)
+        if not grid._get_post_view().exists(Timeout.MEDIUM):
             return 0, 0
-        for i in range(2, 6):
-            lin_layout = grid_post.child(index=i, className=ClassName.LINEAR_LAYOUT)
-            if i == 5 or not lin_layout.exists():
-                last_index = i - 1
-                last_lin_layout = grid_post.child(index=last_index)
-                for n in range(1, 4):
-                    if n == 3 or not last_lin_layout.child(index=n).exists():
-                        if n == 3:
-                            return last_index, 0
-                        else:
-                            return last_index - 1, n
+        rows = grid._get_visible_post_rows()
+        full_rows = 0
+        for cells in rows:
+            if len(cells) != 3:
+                return full_rows, len(cells)
+            full_rows += 1
+        return full_rows, 0
 
     def getProfileInfo(self):
         try:

@@ -31,6 +31,7 @@ from InstaAddict.core.gemini_vision import (
     generate_sentiment_fallback,
 )
 from InstaAddict.core.storage import CommentMemory
+from InstaAddict.core.watchdog import record_heartbeat
 from InstaAddict.core.utils import (
     append_to_file,
     get_value,
@@ -204,6 +205,7 @@ def interact_with_user(
         session_state,
     )
     swipe_amount = 0
+    profile_navigation_lost = False
 
     if number_of_watched >= 1:
         interacted = True
@@ -320,13 +322,12 @@ def interact_with_user(
             if opened_post_view is None:
                 save_crash(device)
                 consecutive_open_failures += 1
-                UniversalActions.dismiss_peek_if_open(device)
-                for _ in range(3):
-                    if post_grid_view._is_still_on_profile():
-                        break
-                    logger.debug("Ensuring return to profile grid after failed open...")
-                    device.back()
-                    random_sleep(0.5, 1.0, modulable=False)
+                if not post_grid_view.return_to_profile():
+                    logger.warning(
+                        "Profile grid unavailable after failed post open; ending interaction."
+                    )
+                    profile_navigation_lost = True
+                    break
                 if consecutive_open_failures >= 2:
                     logger.warning(
                         f"Multiple consecutive post open failures for @{username}. Moving to next profile."
@@ -352,15 +353,22 @@ def interact_with_user(
                 if already_liked:
                     logger.info("Post already liked (detected in Peek Preview)!")
                 else:
+                    record_heartbeat("post_like", "Liking peek preview")
                     like_succeed = opened_post_view.like_in_peek()
                     if like_succeed:
+                        record_heartbeat("post_like", "Peek like confirmed")
                         register_like(device, session_state)
                         number_of_liked += 1
                         interacted = True
                     else:
                         logger.warning("Fail to like post via Peek Preview.")
-                opened_post_view.dismiss_peek()
-                random_sleep(0.5, 1.0, modulable=False)
+                if (
+                    not opened_post_view.dismiss_peek()
+                    or not post_grid_view.return_to_profile()
+                ):
+                    logger.warning("Could not return from Peek Preview; ending interaction.")
+                    profile_navigation_lost = True
+                    break
                 continue
             if media_type in (None, MediaType.UNKNOWN):
                 media_type = opened_post_view.detect_opened_media_type()
@@ -375,7 +383,9 @@ def interact_with_user(
                     opened_post_view.start_video()
                     video_opened = opened_post_view.open_video()
                     if video_opened:
+                        record_heartbeat("post_watch", "Video opened; watching media")
                         opened_post_view.watch_media(media_type)
+                        record_heartbeat("post_like", "Watch completed; liking video")
                         like_succeed = opened_post_view.like_video()
                 elif media_type in (
                     MediaType.CAROUSEL,
@@ -384,9 +394,12 @@ def interact_with_user(
                 ):
                     if media_type == MediaType.CAROUSEL:
                         _browse_carousel(device, obj_count)
+                    record_heartbeat("post_watch", "Watching opened post")
                     opened_post_view.watch_media(media_type)
+                    record_heartbeat("post_like", "Watch completed; liking post")
                     like_succeed = opened_post_view.like_post()
                 if like_succeed:
+                    record_heartbeat("post_like", "Post like confirmed")
                     register_like(device, session_state)
                     number_of_liked += 1
                 else:
@@ -423,17 +436,24 @@ def interact_with_user(
                     f"Could not {reason} media. Posts count: {profile_data.posts_count}."
                 )
             logger.info("Back to profile.")
-            for _ in range(3):
-                if post_grid_view._is_still_on_profile():
-                    break
-                UniversalActions.dismiss_peek_if_open(device)
-                logger.debug("Exiting post view to profile grid...")
-                device.back()
-                random_sleep(0.5, 1.0, modulable=False)
-            else:
-                logger.warning("Can't go back to the profile!")
-            # Allow RecyclerView grid to re-lay out before next child(index=N) lookup
+            if not post_grid_view.return_to_profile():
+                logger.warning("Can't go back to the profile; ending interaction.")
+                profile_navigation_lost = True
+                break
+            # Allow RecyclerView grid to re-lay out before the next lookup
             random_sleep(0.5, 1.0, modulable=False)
+
+    if profile_navigation_lost:
+        return (
+            interacted,
+            followed,
+            profile_data.is_private,
+            scraped,
+            sent_pm,
+            number_of_liked,
+            number_of_watched,
+            number_of_commented,
+        )
 
     if pm_percentage != 0 and can_send_PM(session_state, pm_percentage):
         sent_pm = _send_PM(device, session_state, my_username, swipe_amount)
@@ -441,6 +461,7 @@ def interact_with_user(
         if sent_pm:
             interacted = True
     if can_follow:
+        record_heartbeat("profile_follow", f"Following @{username}")
         followed = _follow(
             device,
             username,
@@ -450,6 +471,7 @@ def interact_with_user(
             swipe_amount,
         )
         if followed:
+            record_heartbeat("profile_follow", f"Follow confirmed for @{username}")
             interacted = True
 
     return (

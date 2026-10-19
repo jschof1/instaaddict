@@ -60,12 +60,13 @@ class TestFollowsAndCommentsRobustness:
             assert comment is not None
             assert len(comment.strip()) > 0
 
+    @patch("InstaAddict.core.interaction.random_sleep")
     @patch("InstaAddict.core.interaction._comment")
     @patch("InstaAddict.core.interaction.can_comment", return_value=True)
     @patch("InstaAddict.core.interaction.PostsGridView")
     @patch("InstaAddict.core.interaction.ProfileView")
     def test_interact_with_user_comments_when_already_liked(
-        self, mock_pv_cls, mock_pgv_cls, mock_can_comment, mock_comment
+        self, mock_pv_cls, mock_pgv_cls, mock_can_comment, mock_comment, mock_sleep
     ):
         """Verify that interact_with_user evaluates _comment even when the post is already liked."""
         from InstaAddict.core.interaction import interact_with_user
@@ -74,16 +75,17 @@ class TestFollowsAndCommentsRobustness:
         mock_pv = MagicMock()
         mock_pv.count_photo_in_view.return_value = (1, 1)
         mock_pv.swipe_to_fit_posts.return_value = 0
-        mock_pv._is_still_on_profile.side_effect = [False, True]
         mock_pv_cls.return_value = mock_pv
 
         mock_post_view = MagicMock()
         mock_post_view.is_peek = False
+        mock_post_view.is_peek_preview_opened.return_value = False
         mock_post_view.detect_opened_media_type.return_value = MediaType.PHOTO
         mock_post_view._is_post_liked.return_value = (True, True)  # ALREADY LIKED!
 
         mock_pgv = MagicMock()
         mock_pgv.navigateToPost.return_value = (mock_post_view, MediaType.PHOTO, 1)
+        mock_pgv.return_to_profile.return_value = True
         mock_pgv_cls.return_value = mock_pgv
 
         profile_filter = MagicMock()
@@ -125,6 +127,10 @@ class TestFollowsAndCommentsRobustness:
         )
 
         # _comment must have been called even though already_liked was True
-        assert mock_comment.called
+        mock_comment.assert_called_once()
+        mock_post_view.like_post.assert_not_called()
+        mock_pgv.return_to_profile.assert_called_once_with()
+        device.back.assert_not_called()
         # interacted returned True because comment was executed
         assert res[0] is True
+        assert (res[5], res[7]) == (0, 1)

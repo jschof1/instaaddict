@@ -1206,3 +1206,18 @@
   checks: 12 focused unittest cases passed on the Android host Python environment
   deferred: []
   key_fact: "Instagram 451 exposes a non-clickable following count label before the clickable Follow action; matching text alone can both skip prospects and falsely confirm a follow."
+
+- date: 2026-10-19
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - resolve-instagram-451-profile-grid-cells-from-hierarchy-and-exclude-clipped-rows
+    - recognise-both-carousel-container-identifiers-and-distinguish-peek-menus-from-post-icons
+    - bound-tab-post-and-profile-recovery-without-stale-double-taps-or-extra-back-actions
+    - record-legitimate-interaction-progress-without-disabling-the-hang-watchdog
+    - add-private-daily-growth-worker-with-uk-day-action-accounting-and-owned-emulator-cleanup
+    - preserve-confirmed-follow-log-transitions-when-interrupted-before-profile-accounting
+    - verify-full-guarded-live-job-and-automatic-emulator-shutdown
+  checks: "162 targeted regression tests and 49 subtests passed in the Android host environment; the subsequent 12-case daily-worker subset includes an additional passing manual-pause lifecycle test. The guarded live job completed two profiles, recorded two follows and four likes, and saved zero crashes or watchdog recoveries."
+  deferred: []
+  key_fact: "Instagram 451 uses carousel_image_media_group, and clips grid bounds to the viewport. A successful process exit alone cannot prove a complete job; the daily worker requires saved job metrics and retains earlier confirmed actions before any deliberate repair validation. Private account data and the reviewed finite queue remain outside Git."
