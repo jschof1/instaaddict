@@ -7,6 +7,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
+import io
 
 spec = importlib.util.spec_from_file_location("daily_growth", Path(__file__).resolve().parents[1] / "scripts/daily_growth.py")
 daily = importlib.util.module_from_spec(spec)
@@ -154,6 +155,192 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertFalse((growth / "fault.json").exists())
             self.assertTrue(any(call.args[0][-2:] == ["emu", "kill"] for call in adb.call_args_list))
             stop.assert_any_call(caffeinate)
+
+    def comment_setup(self, repo, account, growth):
+        from test_public_comments import entry
+        prepared = entry()
+        daily.write_json(growth / "comment-policy.json", {"enabled": True, "dailyLimit": 2, "timezone": "Europe/London"})
+        daily.write_json(growth / "comment-queue.json", {"comments": [prepared]})
+        daily.write_json(growth / "comment-ledger.json", {"version": 1, "intents": []})
+        return prepared
+
+    def completed_job(self, config_path, day=None):
+        day = day or datetime.now(daily.UK).date().isoformat()
+        return dict(self.session("new-job", day + "T10:00:00+01:00", day + "T10:01:00+01:00"),
+                    args={"config": str(config_path)}, job_metrics={"blogger": {"status": "completed"}},
+                    total_crashes=0, total_watchdog_recoveries=0)
+
+    def test_saved_job_requires_new_matching_completed_record_without_recoveries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, account, growth = self.lifecycle_fixture(directory)
+            config = growth / "job.yml"
+            good = self.completed_job(config, "2026-10-19")
+            daily.write_json(account / "sessions.json", [good])
+            self.assertEqual(daily.saved_bot_job(account, growth, config, "2026-10-19"), [good])
+            for changes in ({"total_crashes": 1}, {"total_watchdog_recoveries": 1}, {"total_comments": 1},
+                            {"total_pm": 1}, {"finish_time": "None"}, {"args": {"config": "other.yml"}},
+                            {"job_metrics": {"blogger": {"status": "running"}}}):
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    daily.write_json(account / "sessions.json", [dict(good, **changes)])
+                    daily.saved_bot_job(account, growth, config, "2026-10-19")
+            daily.write_json(account / "sessions.json", [good])
+            daily.write_json(growth / "sessions-before.json", [good])
+            with self.assertRaisesRegex(ValueError, "new matching"):
+                daily.saved_bot_job(account, growth, config, "2026-10-19")
+
+    def exercise_comment_worker(self, directory, *, comment_only=False, job_completed=True):
+        repo, original, growth = self.lifecycle_fixture(directory)
+        account = original.with_name("uk.tradeleads")
+        original.rename(account)
+        growth = account / "growth"
+        self.comment_setup(repo, account, growth)
+        if comment_only:
+            daily.write_json(growth / "queue.json", {"targets": []})
+        filters = {"skip_if_private": True, "skip_following": True, "skip_follower": True, "follow_private_or_empty": False}
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace(safe_load=lambda _: filters)}))
+            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
+            stack.enter_context(patch.object(daily, "preflight"))
+            stack.enter_context(patch.object(daily, "stop_process"))
+            caffeinate, emulator, bot, helper = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+            emulator.poll.return_value = None
+            helper.poll.return_value, helper.returncode = 0, 0
+            bot.stdout, bot.wait.return_value, bot.returncode = iter([]), 0, 0
+
+            def adb_call(command, **kwargs):
+                if command[-2:] == ["emu", "kill"]:
+                    emulator.poll.return_value = 0
+                return SimpleNamespace(stdout="1" if command[-1] == "sys.boot_completed" else "")
+
+            stack.enter_context(patch.object(daily.subprocess, "run", side_effect=adb_call))
+            commands = []
+
+            def spawn(command, **kwargs):
+                commands.append(command)
+                if command[0] == "/usr/bin/caffeinate":
+                    return caffeinate
+                if command[0].endswith("Start Android.command"):
+                    return emulator
+                if "run.py" in command:
+                    config = command[command.index("--config") + 1]
+                    record = self.completed_job(config)
+                    if not job_completed:
+                        record["job_metrics"]["blogger"]["status"] = "running"
+                    daily.write_json(account / "sessions.json", [record])
+                    return bot
+                self.assertTrue(command[0].endswith(".venv/bin/python"))
+                self.assertTrue(command[2].endswith("scripts/public_comments.py"))
+                self.assertIsNone(emulator.poll())  # same owned VM, before cleanup
+                self.assertEqual(kwargs["env"]["ADB_USB"], "0")
+                journal = daily.read_json(next((growth / "days").glob("*.json")))
+                self.assertEqual(journal.get("sessionIds", []), [] if comment_only else ["new-job"])
+                return helper
+
+            stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=spawn))
+            result = daily.run_session(repo, account, growth)
+            state = daily.read_json(growth / "state.json")
+            count_before = len(commands)
+            self.assertEqual(daily.run_session(repo, account, growth), 0)
+            self.assertEqual(len(commands), count_before)  # today's journal prevents replay
+            return result, state, commands
+
+    def test_comment_only_run_uses_same_owned_vm_and_never_launches_bot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, state, commands = self.exercise_comment_worker(directory, comment_only=True)
+            self.assertEqual((result, state["status"], state["config"]), (0, "completed", None))
+            self.assertEqual(len(commands), 3)
+            self.assertFalse(any("run.py" in command for command in commands))
+
+    def test_existing_follow_or_like_overshoot_prevents_comment_only_vm(self):
+        for follows, likes in [(6, 10), (5, 11)]:
+            with self.subTest(follows=follows, likes=likes), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                repo, original, growth = self.lifecycle_fixture(directory)
+                account = original.with_name("uk.tradeleads")
+                original.rename(account)
+                growth = account / "growth"
+                self.comment_setup(repo, account, growth)
+                daily.write_json(growth / "queue.json", {"targets": []})
+                day = datetime.now(daily.UK).date().isoformat()
+                daily.write_json(account / "sessions.json", [self.session(start=day + " 10:00:00", finish=day + " 10:01:00", follows=follows, likes=likes)])
+                stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace()}))
+                spawn = stack.enter_context(patch.object(daily.subprocess, "Popen"))
+                with self.assertRaisesRegex(ValueError, "already exceeded"):
+                    daily.run_session(repo, account, growth)
+                spawn.assert_not_called()
+
+    def test_comment_phase_follows_saved_job_validation_before_vm_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, state, commands = self.exercise_comment_worker(directory)
+            self.assertEqual((result, state["status"], state["sessionIds"]), (0, "completed", ["new-job"]))
+            self.assertEqual(len(commands), 4)
+        with tempfile.TemporaryDirectory() as directory:
+            result, state, commands = self.exercise_comment_worker(directory, job_completed=False)
+            self.assertEqual((result, state["status"]), (1, "fault"))
+            self.assertEqual(len(commands), 3)  # invalid saved job cannot start helper
+
+    def test_comment_phase_pause_rollover_disk_and_shared_deadline_prevent_launch(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            repo, account, growth = self.lifecycle_fixture(directory)
+            account = account.with_name("uk.tradeleads")
+            self.comment_setup(repo, account, growth)
+            vm = MagicMock()
+            vm.poll.return_value = None
+            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen"))
+            stack.enter_context(patch.object(daily.time, "monotonic", return_value=1500))
+            disk = stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            day = datetime.now(daily.UK).date().isoformat()
+            with self.assertRaisesRegex(RuntimeError, "time limit"):
+                daily.run_comment_phase(repo, account, growth, day, {}, vm, 0, io.StringIO())
+            (growth / "paused.json").touch()
+            with self.assertRaisesRegex(RuntimeError, "Paused"):
+                daily.run_comment_phase(repo, account, growth, day, {}, vm, 1500, io.StringIO())
+            (growth / "paused.json").unlink()
+            with self.assertRaisesRegex(RuntimeError, "next UK day"):
+                daily.run_comment_phase(repo, account, growth, "2026-10-18", {}, vm, 1500, io.StringIO())
+            disk.return_value.free = 2 * daily.GIB
+            with self.assertRaisesRegex(RuntimeError, "Disk"):
+                daily.run_comment_phase(repo, account, growth, day, {}, vm, 1500, io.StringIO())
+            spawn.assert_not_called()
+
+    def test_interrupted_helper_is_stopped_and_reservation_becomes_uncertain(self):
+        from test_public_comments import intent
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            repo, original, growth = self.lifecycle_fixture(directory)
+            account = original.with_name("uk.tradeleads")
+            self.comment_setup(repo, account, growth)
+            helper, vm = MagicMock(), MagicMock()
+            helper.poll.return_value = vm.poll.return_value = None
+            stack.enter_context(patch.object(daily.time, "monotonic", return_value=0))
+            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            stack.enter_context(patch.object(daily.time, "sleep", side_effect=lambda _: (growth / "paused.json").touch()))
+            stop = stack.enter_context(patch.object(daily, "stop_process"))
+            day = datetime.now(daily.UK).date().isoformat()
+
+            def reserve(*args, **kwargs):
+                daily.write_json(growth / "comment-ledger.json", {"version": 1, "intents": [intent(state="reserved", day=day)]})
+                return helper
+
+            stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=reserve))
+            with self.assertRaisesRegex(RuntimeError, "Paused"):
+                daily.run_comment_phase(repo, account, growth, day, {}, vm, 0, io.StringIO())
+            stop.assert_called_once_with(helper)
+            self.assertEqual(daily.public_comments.load_ledger(growth)["intents"][0]["state"], "uncertain")
+
+    def test_comment_helper_is_stopped_at_180_seconds(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            repo, original, growth = self.lifecycle_fixture(directory)
+            account = original.with_name("uk.tradeleads")
+            self.comment_setup(repo, account, growth)
+            helper, vm = MagicMock(), MagicMock()
+            helper.poll.return_value = vm.poll.return_value = None
+            stack.enter_context(patch.object(daily.time, "monotonic", side_effect=[0, 0, 0, 180]))
+            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            stack.enter_context(patch.object(daily.subprocess, "Popen", return_value=helper))
+            stop = stack.enter_context(patch.object(daily, "stop_process"))
+            with self.assertRaisesRegex(RuntimeError, "time limit"):
+                daily.run_comment_phase(repo, account, growth, datetime.now(daily.UK).date().isoformat(), {}, vm, 0, io.StringIO())
+            stop.assert_called_once_with(helper)
 
 
 if __name__ == "__main__":
