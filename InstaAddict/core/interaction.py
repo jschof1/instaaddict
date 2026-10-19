@@ -1205,26 +1205,32 @@ def _follow(device, username, follow_percentage, args, session_state, swipe_amou
 
         FOLLOW_REGEX = "^Follow$"
         follow_button = device.find(
+            clickable=True,
             textMatches=case_insensitive_re(FOLLOW_REGEX),
         )
         if not follow_button.exists():
             follow_button = device.find(
+                clickable=True,
                 descriptionMatches=case_insensitive_re(FOLLOW_REGEX),
             )
         UNFOLLOW_REGEX = "^Following|^Requested"
         unfollow_button = device.find(
+            clickable=True,
             textMatches=case_insensitive_re(UNFOLLOW_REGEX),
         )
         if not unfollow_button.exists():
             unfollow_button = device.find(
+                clickable=True,
                 descriptionMatches=case_insensitive_re(UNFOLLOW_REGEX),
             )
         FOLLOWBACK_REGEX = "^Follow Back$"
         followback_button = device.find(
+            clickable=True,
             textMatches=case_insensitive_re(FOLLOWBACK_REGEX),
         )
         if not followback_button.exists():
             followback_button = device.find(
+                clickable=True,
                 descriptionMatches=case_insensitive_re(FOLLOWBACK_REGEX),
             )
 
@@ -1245,9 +1251,11 @@ def _follow(device, username, follow_percentage, args, session_state, swipe_amou
                 follow_button.click()
                 if (
                     device.find(
+                        clickable=True,
                         textMatches=case_insensitive_re(UNFOLLOW_REGEX),
                     ).exists(Timeout.SHORT)
                     or device.find(
+                        clickable=True,
                         descriptionMatches=case_insensitive_re(UNFOLLOW_REGEX),
                     ).exists(Timeout.SHORT)
                 ):

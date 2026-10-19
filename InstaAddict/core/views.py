@@ -3100,44 +3100,41 @@ class ProfileView(ActionBarView):
 
     def getFollowButton(self):
         button_regex = f"{ClassName.BUTTON}|{ClassName.TEXT_VIEW}"
-        following_regex_all = "^following|^requested|^follow back|^follow"
-        # Primary lookup: text matching without strict clickable constraint on TextView
-        following_or_follow_back_button = self.device.find(
-            classNameMatches=button_regex,
-            textMatches=case_insensitive_re(following_regex_all),
+        labels = "following|requested|follow back|follow"
+        # The non-clickable profile count label also says "following". Prefer
+        # the action's resource ID; text-only fallbacks must be clickable.
+        selectors = (
+            {"resourceIdMatches": r".*:id/(profile_header_follow_button|button_profile_header_follow)"},
+            {
+                "classNameMatches": button_regex,
+                "textMatches": case_insensitive_re(f"^({labels})$"),
+                "clickable": True,
+            },
+            {
+                "descriptionMatches": case_insensitive_re(f"^({labels})(\\s.*)?$"),
+                "clickable": True,
+            },
         )
-        if not following_or_follow_back_button.exists(Timeout.SHORT):
-            # Fallback 1: check content-description
-            following_or_follow_back_button = self.device.find(
-                descriptionMatches=case_insensitive_re(following_regex_all),
-            )
-        if not following_or_follow_back_button.exists(Timeout.SHORT):
-            # Fallback 2: check common profile follow button resource IDs
-            following_or_follow_back_button = self.device.find(
-                resourceIdMatches=r".*profile_header_follow_button.*|.*button_profile_header_follow.*|.*profile_header_actions_top_row.*"
-            )
-        if following_or_follow_back_button.exists(Timeout.MEDIUM):
-            raw_text = (following_or_follow_back_button.get_text() or "").strip()
-            if not raw_text:
-                raw_text = (
-                    following_or_follow_back_button.get_property("contentDescription")
-                    or ""
-                ).strip()
-            button_text = raw_text.casefold()
-            if any(s in button_text for s in ["following", "requested"]):
-                button_status = FollowStatus.FOLLOWING
-            elif "follow back" in button_text:
-                button_status = FollowStatus.FOLLOW_BACK
-            elif "follow" in button_text:
-                button_status = FollowStatus.FOLLOW
-            else:
-                button_status = FollowStatus.FOLLOW
-            return following_or_follow_back_button, button_status
-        else:
-            logger.warning(
-                "The follow button doesn't exist! Maybe the profile is not loaded!"
-            )
-            return None, FollowStatus.NONE
+        statuses = {
+            "following": FollowStatus.FOLLOWING,
+            # Pending requests must remain ineligible for another follow.
+            "requested": FollowStatus.FOLLOWING,
+            "follow back": FollowStatus.FOLLOW_BACK,
+            "follow": FollowStatus.FOLLOW,
+        }
+        for selector in selectors:
+            button = self.device.find(**selector)
+            if not button.exists(Timeout.SHORT):
+                continue
+            text = (button.get_text() or "").strip().casefold()
+            if text in statuses:
+                return button, statuses[text]
+            description = (button.get_property("contentDescription") or "").strip()
+            match = re.match(rf"^({labels})(?:\s|$)", description, re.IGNORECASE)
+            if match:
+                return button, statuses[match.group(1).casefold()]
+        logger.warning("The follow button doesn't exist! Maybe the profile is not loaded!")
+        return None, FollowStatus.NONE
 
     def has_follows_you_badge(self) -> bool:
         """

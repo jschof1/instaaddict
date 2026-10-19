@@ -1194,3 +1194,15 @@
     - validated-full-acp-ci-fast-tier-passing-across-all-6-standard-gates
   deferred: []
   key_fact: "Iterating atomic grapheme clusters instead of raw code points in device_facade prevents FastInputIME keystroke splitting on compound emojis, while programmatic regex stripping of ZWJs in gemini_vision provides defense-in-depth against Android IME encoding crashes."
+
+- date: 2026-10-19
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - prefer-profile-action-resource-ids-over-non-clickable-following-count-labels
+    - require-clickable-follow-and-confirmation-actions
+    - correct-inverted-disable-block-detection-option-to-keep-detection-enabled-by-default
+    - add-profile-selector-and-follow-action-regressions-with-config-boolean-coverage
+  checks: 12 focused unittest cases passed on the Android host Python environment
+  deferred: []
+  key_fact: "Instagram 451 exposes a non-clickable following count label before the clickable Follow action; matching text alone can both skip prospects and falsely confirm a follow."
