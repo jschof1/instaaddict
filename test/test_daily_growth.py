@@ -37,6 +37,53 @@ class DailyGrowthTests(unittest.TestCase):
             with self.subTest(sessions=sessions), self.assertRaises(ValueError):
                 daily.daily_totals(sessions, "2026-10-19")
 
+    def test_interrupted_batch_keeps_reserved_likes_charged(self):
+        journal = {"day": "2026-10-19", "config": "batch.yml", "sessionIds": [],
+                   "reservedLikeBudget": 10, "observedFollowHandles": ["one", "two", "three"]}
+        self.assertEqual(daily.accounting_totals([], "2026-10-19", [journal]), {"follows": 3, "likes": 10})
+        for saved in (0, 4, 10, 11):
+            session = dict(self.session("batch", follows=3, likes=saved), args={"config": "batch.yml"})
+            journal["sessionIds"] = ["batch"]
+            sessions = [session, self.session(likes=1)]
+            expected = {"follows": 5, "likes": max(10, saved) + 1}
+            self.assertEqual(daily.accounting_totals(sessions, "2026-10-19", [journal]), expected)
+            self.assertEqual(daily.accounting_totals(sessions, "2026-10-19", [journal]), expected)
+
+    def test_duplicate_empty_session_journals_require_review(self):
+        journal = {"day": "2026-10-19", "config": "batch.yml", "reservedLikeBudget": 10}
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            daily.accounting_totals([], "2026-10-19", [journal, journal])
+
+    def test_duplicate_ids_within_one_journal_cannot_release_reservation(self):
+        journal = {"day": "2026-10-19", "config": "batch.yml", "reservedLikeBudget": 10,
+                   "sessionIds": ["batch", "batch"]}
+        saved = dict(self.session("batch", likes=5), args={"config": "batch.yml"})
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            daily.accounting_totals([saved], "2026-10-19", [journal])
+
+    def test_linked_session_outside_journal_day_requires_review(self):
+        journal = {"day": "2026-10-19", "config": "batch.yml", "reservedLikeBudget": 10,
+                   "sessionIds": ["batch"]}
+        for likes in (4, -1):
+            saved = dict(self.session("batch", start="2026-10-18 12:00:00", finish="2026-10-18 12:30:00", likes=likes),
+                         args={"config": "batch.yml"})
+            with self.subTest(likes=likes), self.assertRaisesRegex(ValueError, "journal day"):
+                daily.accounting_totals([saved], "2026-10-19", [journal])
+
+    def test_missing_or_invalid_like_reservation_requires_review(self):
+        for reservation in (None, -1, True, "10"):
+            journal = {"day": "2026-10-19", "config": "batch.yml"}
+            if reservation is not None:
+                journal["reservedLikeBudget"] = reservation
+            with self.subTest(reservation=reservation), self.assertRaises(ValueError):
+                daily.accounting_totals([], "2026-10-19", [journal])
+
+    def test_unrelated_saved_session_cannot_release_like_reservation(self):
+        journal = {"day": "2026-10-19", "config": "batch.yml", "reservedLikeBudget": 10,
+                   "sessionIds": ["manual"]}
+        with self.assertRaisesRegex(ValueError, "matching"):
+            daily.accounting_totals([self.session(likes=4)], "2026-10-19", [journal])
+
     def target(self, handle):
         return dict(handle=handle, sourceUrl="https://business.example/", instagramUrl="https://www.instagram.com/" + handle + "/", trade="Roofing", serviceArea="Kent", evidence="Business links this account")
 
@@ -124,6 +171,7 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertTrue(any(call.args[0][-2:] == ["emu", "kill"] for call in adb.call_args_list))
             stop.assert_any_call(caffeinate)
             self.assertEqual(daily.read_json(growth / "state.json")["status"], "fault")
+            self.assertEqual(daily.read_json(growth / "state.json")["reservedLikeBudget"], 0)
             self.assertTrue((growth / "fault.json").exists())
             self.assertEqual(daily.run_session(repo, account, growth), 0)
             self.assertEqual(spawn.call_count, 2)  # no bot or retry after failed boot
@@ -188,7 +236,7 @@ class DailyGrowthTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "new matching"):
                 daily.saved_bot_job(account, growth, config, "2026-10-19")
 
-    def exercise_comment_worker(self, directory, *, comment_only=False, job_completed=True):
+    def exercise_comment_worker(self, directory, *, comment_only=False, job_completed=True, reservation_fails=False):
         repo, original, growth = self.lifecycle_fixture(directory)
         account = original.with_name("uk.tradeleads")
         original.rename(account)
@@ -198,6 +246,17 @@ class DailyGrowthTests(unittest.TestCase):
             daily.write_json(growth / "queue.json", {"targets": []})
         filters = {"skip_if_private": True, "skip_following": True, "skip_follower": True, "follow_private_or_empty": False}
         with ExitStack() as stack:
+            if reservation_fails:
+                original_write = daily.write_json
+
+                def write(path, value):
+                    nonlocal reservation_fails
+                    if path.parent.name == "days" and value.get("reservedLikeBudget", 0) > 0 and reservation_fails:
+                        reservation_fails = False
+                        raise OSError("reservation disk failure")
+                    original_write(path, value)
+
+                stack.enter_context(patch.object(daily, "write_json", side_effect=write))
             stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace(safe_load=lambda _: filters)}))
             stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
             stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
@@ -224,6 +283,8 @@ class DailyGrowthTests(unittest.TestCase):
                     return emulator
                 if "run.py" in command:
                     config = command[command.index("--config") + 1]
+                    journal = daily.read_json(next((growth / "days").glob("*.json")))
+                    self.assertEqual(journal["reservedLikeBudget"], 2)
                     record = self.completed_job(config)
                     if not job_completed:
                         record["job_metrics"]["blogger"]["status"] = "running"
@@ -249,7 +310,16 @@ class DailyGrowthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             result, state, commands = self.exercise_comment_worker(directory, comment_only=True)
             self.assertEqual((result, state["status"], state["config"]), (0, "completed", None))
+            self.assertEqual(state["reservedLikeBudget"], 0)
             self.assertEqual(len(commands), 3)
+            self.assertFalse(any("run.py" in command for command in commands))
+
+    def test_failed_reservation_write_prevents_bot_and_comments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, state, commands = self.exercise_comment_worker(directory, reservation_fails=True)
+            self.assertEqual((result, state["status"]), (1, "fault"))
+            self.assertEqual(state["problem"], "reservation disk failure")
+            self.assertEqual(len(commands), 2)
             self.assertFalse(any("run.py" in command for command in commands))
 
     def test_existing_follow_or_like_overshoot_prevents_comment_only_vm(self):

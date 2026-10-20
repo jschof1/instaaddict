@@ -53,3 +53,18 @@ def test_unhealthy_service_still_uses_recovery(patched_device):
 
     original_reset.assert_called_once()
     device.shell.assert_called()
+
+
+def test_foreground_loss_reports_expected_and_actual_packages():
+    device = Mock()
+    device.app_id = "com.instagram.android"
+    device._get_current_app.return_value = "com.android.launcher3"
+    device._ig_is_opened.return_value = False
+
+    with pytest.raises(device_facade.DeviceFacade.AppHasCrashed) as problem:
+        device_facade.DeviceFacade.find(device, resourceId="unused")
+
+    assert "com.android.launcher3" in str(problem.value)
+    assert "com.instagram.android" in str(problem.value)
+    device._get_current_app.assert_called_once()
+    device.deviceV2.assert_not_called()

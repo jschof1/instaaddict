@@ -402,8 +402,11 @@ class DeviceFacade:
         def wrapper(self, **kwargs):
             avoid_lst = ["choose_cloned_app", "check_if_crash_popup_is_there"]
             caller = stack()[1].function
-            if not self._ig_is_opened() and caller not in avoid_lst:
-                raise DeviceFacade.AppHasCrashed("App has crashed / has been closed!")
+            current_app = self._get_current_app()
+            if current_app != self.app_id and caller not in avoid_lst:
+                raise DeviceFacade.AppHasCrashed(
+                    f"App has crashed / has been closed! foreground_package={current_app!r} expected_package={self.app_id!r}"
+                )
             return func(self, **kwargs)
 
         return wrapper
