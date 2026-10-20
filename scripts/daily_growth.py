@@ -92,15 +92,16 @@ def accounting_totals(sessions, day, journals):
     totals = daily_totals(sessions, day)
     by_id = {s["id"]: s for s in sessions}
     charged = set()
-    runs = set()
+    configs, runs = set(), set()
     for journal in journals:
         if journal.get("day") != day:
             continue
-        run = journal.get("config") or journal.get("startedAt")
-        if run is not None:
-            if run in runs:
-                raise ValueError("Duplicate daily journal run")
-            runs.add(run)
+        for key, seen in (("config", configs), ("startedAt", runs)):
+            identity = journal.get(key)
+            if identity is not None:
+                if identity in seen:
+                    raise ValueError("Duplicate daily journal run")
+                seen.add(identity)
         ids = journal.get("sessionIds", [])
         if len(ids) != len(set(ids)) or any(sid in charged for sid in ids):
             raise ValueError("Duplicate daily journal session IDs")

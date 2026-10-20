@@ -54,6 +54,13 @@ class DailyGrowthTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Duplicate"):
             daily.accounting_totals([], "2026-10-19", [journal, journal])
 
+    def test_duplicate_start_with_different_configs_requires_review(self):
+        first = {"day": "2026-10-19", "config": "first.yml", "startedAt": "2026-10-19T10:00:00+01:00",
+                 "reservedLikeBudget": 5}
+        second = dict(first, config="second.yml")
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
+            daily.accounting_totals([], "2026-10-19", [first, second])
+
     def test_duplicate_ids_within_one_journal_cannot_release_reservation(self):
         journal = {"day": "2026-10-19", "config": "batch.yml", "reservedLikeBudget": 10,
                    "sessionIds": ["batch", "batch"]}
