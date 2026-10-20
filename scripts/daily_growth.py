@@ -52,6 +52,11 @@ def write_json(path, value):
         out.flush()
         os.fsync(out.fileno())
     os.replace(temp, path)
+    descriptor = os.open(path.parent, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def now():
@@ -84,20 +89,38 @@ def daily_totals(sessions, day):
 
 
 def accounting_totals(sessions, day, journals):
-    """A verified Follow log can precede the bot's delayed per-profile counter."""
     totals = daily_totals(sessions, day)
     by_id = {s["id"]: s for s in sessions}
     charged = set()
+    configs, runs = set(), set()
     for journal in journals:
         if journal.get("day") != day:
             continue
+        for key, seen in (("config", configs), ("startedAt", runs)):
+            identity = journal.get(key)
+            if identity is not None:
+                if identity in seen:
+                    raise ValueError("Duplicate daily journal run")
+                seen.add(identity)
         ids = journal.get("sessionIds", [])
-        if any(sid in charged for sid in ids):
+        if len(ids) != len(set(ids)) or any(sid in charged for sid in ids):
             raise ValueError("Duplicate daily journal session IDs")
         charged.update(ids)
+        saved = [by_id[sid] for sid in ids if sid in by_id]
+        for session in saved:
+            stamps = [datetime.fromisoformat(session[key]) for key in ("start_time", "finish_time")]
+            start, finish = [stamp.replace(tzinfo=UK) if stamp.tzinfo is None else stamp.astimezone(UK) for stamp in stamps]
+            if not start.date().isoformat() <= day <= finish.date().isoformat():
+                raise ValueError("Linked saved session does not belong to the journal day")
         observed = len(set(journal.get("observedFollowHandles", [])))
-        recorded = sum(by_id[sid]["total_followed"] for sid in ids if sid in by_id)
+        recorded = sum(s["total_followed"] for s in saved)
         totals["follows"] += max(0, observed - recorded)
+        reservation = journal.get("reservedLikeBudget", None if journal.get("config") else 0)
+        if type(reservation) is not int or reservation < 0:
+            raise ValueError("Missing or invalid like reservation requires review")
+        if reservation and any(s.get("args", {}).get("config") != journal.get("config") for s in saved):
+            raise ValueError("Like reservation requires matching saved sessions")
+        totals["likes"] += max(0, reservation - sum(s["total_likes"] for s in saved))
     return totals
 
 
@@ -313,7 +336,7 @@ def run_session(repo, account, growth):
         config_path.write_text("\n".join(key + ": " + json.dumps(value) for key, value in conf.items()) + "\n")
         os.chmod(config_path, 0o600)
         preflight(repo, config_path)
-    journal = {"day": day, "startedAt": now(), "status": "running", "targets": targets, "config": str(config_path) if config_path else None, "budgetBefore": totals, "limits": {"follows": follows, "likes": likes}, "comments": comments}
+    journal = {"day": day, "startedAt": now(), "status": "running", "targets": targets, "config": str(config_path) if config_path else None, "budgetBefore": totals, "limits": {"follows": follows, "likes": likes}, "comments": comments, "reservedLikeBudget": 0}
     write_json(journal_path, journal)
     write_json(state_path, journal)
     vm = bot = caffeinate = None
@@ -349,6 +372,9 @@ def run_session(repo, account, growth):
                     pass
                 time.sleep(3)
             if targets:
+                journal["reservedLikeBudget"] = len(targets) * conf["likes-count"]
+                write_json(journal_path, journal)
+                write_json(state_path, journal)
                 bot = subprocess.Popen([str(repo / ".venv/bin/python"), "-u", "run.py", "--config", str(config_path)], cwd=repo, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
                 lines = queue.Queue()
                 def drain():

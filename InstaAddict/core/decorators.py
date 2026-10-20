@@ -67,8 +67,8 @@ def run_safely(device, device_id, sessions, session_state, screen_record, config
                     stop_bot(device, sessions, session_state)
                     return
 
-            except DeviceFacade.AppHasCrashed:
-                logger.warning("App has crashed / has been closed!")
+            except DeviceFacade.AppHasCrashed as exc:
+                logger.warning("%s", exc)
                 restart(
                     device,
                     sessions,

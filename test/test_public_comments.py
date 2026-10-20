@@ -242,10 +242,35 @@ class PublicCommentsTests(unittest.TestCase):
         ui.open_and_validate(entry(2))
         self.assertEqual((device.backs, device.typed, device.clicks), (2, 0, 0))
 
+    def test_keyboard_back_does_not_leave_comment_sheet_blocking_next_post(self):
+        device = FakeDevice(self.growth, [entry(1), entry(2)])
+        ui = comments.CommentUI(device, self.growth)
+        ui.open_and_validate(entry(1))
+        original_press = device.press
+
+        def press(key):
+            if device.backs == 0:
+                device.backs += 1
+            else:
+                original_press(key)
+
+        device.press = press
+        ui.open_and_validate(entry(2))
+        self.assertEqual((device.backs, device.typed, device.clicks), (3, 0, 0))
+
     def test_observed_question_hint_is_accepted_without_typing(self):
         device = FakeDevice(self.growth, [entry()])
         device.hint = "What do you think of this?"
         comments.CommentUI(device, self.growth).open_and_validate(entry())
+        self.assertEqual((device.typed, device.clicks), (0, 0))
+
+    def test_comment_sheet_that_will_not_close_stops_before_typing(self):
+        device = FakeDevice(self.growth, [entry()])
+        device.screen = "comments"
+        device.press = Mock()
+        with self.assertRaisesRegex(RuntimeError, "bounded Back"):
+            comments.CommentUI(device, self.growth).open_and_validate(entry())
+        self.assertEqual(device.press.call_count, 3)
         self.assertEqual((device.typed, device.clicks), (0, 0))
 
     def test_already_visible_exact_comment_is_charged_without_typing(self):

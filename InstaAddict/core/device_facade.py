@@ -135,8 +135,18 @@ def _apply_uiautomator2_compatibility_patches():
 
         def patched_reset_uiautomator(dev_self, reason="unknown", depth=0):
             try:
+                if dev_self._is_alive():
+                    return True
+            except Exception:
+                pass
+            try:
                 return _orig_reset_uiautomator(dev_self, reason=reason, depth=depth)
             except Exception as reset_err:
+                try:
+                    if dev_self._is_alive():
+                        return True
+                except Exception:
+                    pass
                 logger.warning(
                     f"uiautomator2 reset_uiautomator failed ({reset_err}). Triggering AndroidX resurrection fallback..."
                 )
@@ -392,8 +402,11 @@ class DeviceFacade:
         def wrapper(self, **kwargs):
             avoid_lst = ["choose_cloned_app", "check_if_crash_popup_is_there"]
             caller = stack()[1].function
-            if not self._ig_is_opened() and caller not in avoid_lst:
-                raise DeviceFacade.AppHasCrashed("App has crashed / has been closed!")
+            current_app = self._get_current_app()
+            if current_app != self.app_id and caller not in avoid_lst:
+                raise DeviceFacade.AppHasCrashed(
+                    f"App has crashed / has been closed! foreground_package={current_app!r} expected_package={self.app_id!r}"
+                )
             return func(self, **kwargs)
 
         return wrapper

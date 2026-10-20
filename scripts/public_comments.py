@@ -286,10 +286,14 @@ class CommentUI:
         self.guard()
         self.d.shell(["monkey", "-p", APP, "-c", "android.intent.category.LAUNCHER", "1"])
         root, _ = self.snapshot("launch")
-        if self.nodes(root, "layout_comment_thread_edittext_multiline"):
+        for _ in range(3):
+            if not self.nodes(root, "layout_comment_thread_edittext_multiline"):
+                break
             self.guard()
             self.d.press("back")
             root, _ = self.snapshot("dismiss-comments")
+        if self.nodes(root, "layout_comment_thread_edittext_multiline"):
+            raise RuntimeError("Comment sheet did not close after bounded Back presses")
         if not self.nodes(root, "profile_tab") and self.nodes(root, "row_feed_photo_profile_name"):
             self.guard()
             self.d.press("back")
