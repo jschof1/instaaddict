@@ -135,8 +135,18 @@ def _apply_uiautomator2_compatibility_patches():
 
         def patched_reset_uiautomator(dev_self, reason="unknown", depth=0):
             try:
+                if dev_self._is_alive():
+                    return True
+            except Exception:
+                pass
+            try:
                 return _orig_reset_uiautomator(dev_self, reason=reason, depth=depth)
             except Exception as reset_err:
+                try:
+                    if dev_self._is_alive():
+                        return True
+                except Exception:
+                    pass
                 logger.warning(
                     f"uiautomator2 reset_uiautomator failed ({reset_err}). Triggering AndroidX resurrection fallback..."
                 )
