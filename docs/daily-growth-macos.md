@@ -134,9 +134,18 @@ the Mac's time zone set to Europe/London. Set absolute Python/script paths,
 `WorkingDirectory` to the checkout, `RunAtLoad` false and `KeepAlive` false.
 Enable the schedule only after a complete supervised session succeeds.
 
-The Mac mini must remain powered and its user logged in. A sleeping Mac runs
+Since 23 November 2026 the worker runs on the MacBook Pro, not the Mac mini (the mini's
+LaunchAgent is renamed `*.moved-to-macbook-20261123`). The LaunchAgent runs the worker
+through `mac-resource-guard run --light --wait 60`; a refusal skips that day without
+starting it. The launcher uses hardware graphics (`-gpu host`, 3 GB, 4 cores); software
+rendering on the mini made Instagram take minutes to open and tripped the watchdog.
+`~/Library/Android/sdk` links to `~/.android-sdk-build`. The copied device only trusts the
+mini's adb key, so `ADB_VENDOR_KEYS=~/.android/instaaddict-adbkey` must be set for the
+launcher, the worker and any adb server that talks to it.
+
+The Mac must remain powered and its user logged in. A sleeping Mac runs
 the missed calendar job when it wakes; a powered-off Mac cannot run it. The
-worker prevents sleep only during a session. The laptop and chat can be closed.
+worker prevents sleep only during a session.
 
 Starting Android requires 8 GiB free; a run stops below a 3 GiB reserve. Boot
 has four minutes and the bot twenty minutes. The comment helper has at most
