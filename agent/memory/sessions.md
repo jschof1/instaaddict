@@ -1221,3 +1221,20 @@
   checks: "162 targeted regression tests and 49 subtests passed in the Android host environment; the subsequent 12-case daily-worker subset includes an additional passing manual-pause lifecycle test. The guarded live job completed two profiles, recorded two follows and four likes, and saved zero crashes or watchdog recoveries."
   deferred: []
   key_fact: "Instagram 451 uses carousel_image_media_group, and clips grid bounds to the viewport. A successful process exit alone cannot prove a complete job; the daily worker requires saved job metrics and retains earlier confirmed actions before any deliberate repair validation. Private account data and the reviewed finite queue remain outside Git."
+
+- date: 2026-11-24
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - audit-the-retired-mini-and-current-macbook-scheduler-without-new-instagram-actions
+    - verify-23-november-completed-session-recorded-three-follows-and-four-likes
+    - diagnose-24-november-launchd-exit-78-and-documents-privacy-denial
+    - relocate-the-single-checkout-to-home-github-with-original-path-symlinked
+    - repair-macbook-launchagent-and-local-status-pause-resume-controls
+    - validate-status-config-and-android-input-readability-through-readonly-launchagents
+    - retain-all-seven-protected-account-file-hashes-and-daily-no-retry-limits
+  checks: "Read-only launchd status and dependency/configuration probes exited 0; plist lint and local pause/resume lifecycle passed. Mini scheduler remains unloaded. No application code changed; no Instagram batch was started."
+  deferred:
+    - verify-first-repaired-automatic-run-on-25-november-at-11-30-utc
+    - review-finite-prospect-stock-before-30-november
+  key_fact: "A worker that works in a terminal can still fail before execution under launchd when its working directory or logs are under Documents. Validate with a read-only launchd probe, and keep the last completed account journal distinct from today's scheduled launch."

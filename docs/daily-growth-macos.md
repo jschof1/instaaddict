@@ -139,9 +139,32 @@ LaunchAgent is renamed `*.moved-to-macbook-20261123`). The LaunchAgent runs the 
 through `mac-resource-guard run --light --wait 60`; a refusal skips that day without
 starting it. The launcher uses hardware graphics (`-gpu host`, 3 GB, 4 cores); software
 rendering on the mini made Instagram take minutes to open and tripped the watchdog.
+
+The MacBook runtime checkout is `~/GitHub/instaaddict`. The old
+`~/Documents/GitHub/instaaddict` path is a symlink to that same checkout, including
+the single account directory. Use the runtime path for the LaunchAgent's arguments,
+working directory and log paths. On 24 November the Documents-based configuration
+failed before Python started: launchd reported `Operation not permitted` and exit 78.
+A shell check of the worker alone does not detect that background access failure.
+Validate a changed installation through a separate, temporary LaunchAgent with
+the same executable, environment and working directory, replacing the worker's
+`run` subcommand with `status`. Remove the temporary service after its exit and
+inspect its output. Keep `RunAtLoad` and `KeepAlive` false on the real daily agent;
+reloading it must not start an extra batch.
+
 `~/Library/Android/sdk` links to `~/.android-sdk-build`. The copied device only trusts the
 mini's adb key, so `ADB_VENDOR_KEYS=~/.android/instaaddict-adbkey` must be set for the
 launcher, the worker and any adb server that talks to it.
+The SDK's `system-images` directory now lives on the mounted `/Volumes/LLM` volume;
+verify that route before relying on the schedule. Never create an empty replacement
+directory when the external volume is absent.
+
+The `Growth status.command`, `Pause daily growth.command` and
+`Resume daily growth.command` controls in `~/Applications/InstaAddict` operate on
+this MacBook's runtime checkout. Status also prints the live launchd state and last
+exit code. Old SSH controls targeting the mini do not control the current worker.
+Comments remain disabled in the current account's private policy; the optional
+comment helper documented above must not be enabled as part of a scheduling repair.
 
 The Mac must remain powered and its user logged in. A sleeping Mac runs
 the missed calendar job when it wakes; a powered-off Mac cannot run it. The
@@ -159,6 +182,10 @@ automatically, even when it performed no actions.
 Bot-recorded likes/follows are outgoing actions, not proof of new followers or
 leads. A clean exit must also have a saved, completed job without crashes or
 watchdog recoveries before the worker reports success.
+The reserved like budget is a conservative charge, not a count of confirmed likes.
+Use `botRecordedActions`, the matching finished saved session, and its log to
+report actual actions. A loaded schedule, an old completed journal, a skipped day,
+and a successful read-only launch probe are not a new completed Instagram run.
 
 Pause stops an active bot and its owned emulator. Resume removes only a manual
 pause; it cannot clear `fault.json`. Investigate the saved log, reconcile any
