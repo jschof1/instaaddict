@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Changed
+- Added the UK Trade Leads deployment purpose, connected projects and commercial evidence boundaries to the project entry points and agent identity.
 - The bounded macOS daily worker accepts operator-configured caps up to 10 follows and 20 likes, retaining lower legacy settings, daily accounting, reservations and no automatic replay. Each run snapshots its configured caps; status shows them explicitly.
 - Documented daily result checks and replenishment of source-verified prospects and two prepared, post-specific public comments.
 

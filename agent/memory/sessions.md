@@ -1257,3 +1257,17 @@
     - first-automatic-run-under-increased-caps-due-25-november-ten-am
     - recurring-source-verified-queue-maintenance-at-eleven-thirty-daily
   key_fact: "Android exit reason 16 PACKAGE UPDATED identifies Google Play replacing Instagram during an active session. Keep that partial day faulted, prevent replay, disable per-app auto-updates with UI readback, and release only future days after review."
+
+- date: 2026-11-24
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - register-and-verify-separate-t3-project-instaaddict-uk-trade-leads
+    - add-manual-status-pause-resume-controls-without-automatic-live-actions
+    - connect-the-uktl-website-t3-project-with-a-readonly-instagram-status-shortcut
+    - record-uktl-acquisition-purpose-related-projects-and-commercial-outcome-evidence
+    - place-recurring-maintenance-in-the-new-project-and-disable-the-superseded-no-project-task
+  checks: "Project settings and task ownership read back; no runtime action policy, queue, day journal or live Instagram action changed. Documentation and agent identity only."
+  deferred:
+    - first-higher-cap-automatic-run-and-daily-result-check-in-the-registered-project
+  key_fact: "The separate T3 project is InstaAddict · UK Trade Leads, rooted at ~/GitHub/instaaddict. It is a UKTL acquisition channel; project connections do not constitute an automatic Instagram-to-CRM integration."

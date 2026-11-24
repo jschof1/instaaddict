@@ -1,11 +1,14 @@
 project: InstaAddict-AI
 version: 1.4.2
 type: cli-tool
-description: 'Human-like Instagram automation bot powered by ADB and UIAutomator2,
-  automating interactions (following, liking, commenting, watching stories) directly
-  on Android devices without private API calls.
-
-  '
+description: >-
+  Instagram automation software operated by this fork for UK Trade Leads and its
+  uk.tradeleads account. The business purpose is relevant awareness among UK trade
+  and home-service businesses and support for qualified UK Trade Leads enquiries.
+  Start with docs/uk-trade-leads.md for scope, connected projects and outcome
+  evidence, then docs/daily-growth-macos.md for operation. The underlying software
+  uses Android, ADB and UIAutomator2; its wider capabilities do not authorise
+  enabling extra actions for this deployment.
 stack:
 - primary: Python
 - runtime: Python 3.11+ / 3.13
@@ -15,11 +18,12 @@ stack:
 - data: SQLite / JSON / text lists
 team: open-source
 priorities:
+- uk-trade-leads-qualified-enquiries
 - anti-detection
 - reliability
 - safety-limits
 - clean-code
-repo: github.com/ssucipto/instaaddict
+repo: github.com/jschof1/instaaddict
 capabilities:
 - IG v446+ Full-Screen Reels & Modern Action Bar / Media group resolution
 - Multi-Tier Hashtag Discovery, Rotation & Pruning Engine (HashtagManager)

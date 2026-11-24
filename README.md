@@ -31,9 +31,22 @@
 
 <br />
 
+## UK Trade Leads deployment
+
+This fork operates **[@uk.tradeleads](https://www.instagram.com/uk.tradeleads/)** for
+**UK Trade Leads**. Its purpose is to reach relevant UK trade and home-service
+businesses and support qualified enquiries through the existing UKTL website and
+booking journey. Activity totals are operational evidence; visits, enquiries and
+paying clients need their own evidence.
+
+Start with the [UK Trade Leads project guide](docs/uk-trade-leads.md) for its business
+purpose, related website/analytics/Work OS projects and current operating sources.
+The T3 Code project is **InstaAddict · UK Trade Leads**.
+
 ## Table of Contents
 
 * [📖 Complete User & Operator Guide](docs/USER_GUIDE.md) — Comprehensive guide covering Single-Account, Multi-Account Fleet, Vision AI, Telegram, and Troubleshooting
+* [UK Trade Leads deployment and connected projects](docs/uk-trade-leads.md)
 * [About This Project & Our Fork](#about-this-project--our-fork)
 * [What's New in This Fork (InstaAddict-AI vs GramAddict)](#whats-new-in-this-fork-instaaddict-ai-vs-gramaddict)
   * [1. Full-Screen Reels & Modern IG (v446+) Compatibility](#1-full-screen-reels--modern-ig-v446-compatibility)
