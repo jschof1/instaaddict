@@ -1238,3 +1238,22 @@
     - verify-first-repaired-automatic-run-on-25-november-at-11-30-utc
     - review-finite-prospect-stock-before-30-november
   key_fact: "A worker that works in a terminal can still fail before execution under launchd when its working directory or logs are under Documents. Validate with a read-only launchd probe, and keep the last completed account journal distinct from today's scheduled launch."
+
+- date: 2026-11-24
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - act-on-owner-request-for-daily-work-and-higher-action-caps
+    - record-one-follow-and-one-like-with-native-device-confirmation-before-package-update-interruption
+    - retain-faulted-partial-day-and-conservative-like-reservation-without-replay
+    - diagnose-google-play-package-updated-exit-and-disable-per-app-instagram-auto-update
+    - verify-updated-instagram-own-account-post-and-comment-ui-without-further-social-actions
+    - configure-ten-follows-twenty-likes-and-two-source-checked-public-comments-for-future-days
+    - add-seven-official-site-linked-uk-business-prospects-with-source-receipts
+    - replace-one-off-check-with-daily-eleven-thirty-result-and-stock-maintenance
+    - fix-expired-comment-test-fixtures-and-test-increased-budget-reservations
+  checks: "50 targeted tests and 58 subtests passed; native readback retained the outgoing follow and selected like after Instagram updated. Today's 1/1 actions are supervised evidence, not a completed bot session."
+  deferred:
+    - first-automatic-run-under-increased-caps-due-25-november-ten-am
+    - recurring-source-verified-queue-maintenance-at-eleven-thirty-daily
+  key_fact: "Android exit reason 16 PACKAGE UPDATED identifies Google Play replacing Instagram during an active session. Keep that partial day faulted, prevent replay, disable per-app auto-updates with UI readback, and release only future days after review."

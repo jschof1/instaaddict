@@ -460,6 +460,8 @@ Ensure platform-tools is added to your Environment `PATH` variable, and restart 
 
 # Support This Project
 
+For one bounded session per UK day on a Mac, see [short daily sessions on macOS](docs/daily-growth-macos.md), including action caps, scheduling, accounting and fault review.
+
 InstaAddict-AI (Enhanced Edition) is 100% free and open-source. Maintaining compatibility against Instagram's rapid UI shifts requires continuous research and testing. If this bot has helped your workflow or account growth, please consider giving it a ⭐ on GitHub and sharing it with the community!
 
 <br />

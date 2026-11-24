@@ -4,8 +4,8 @@
 Use the existing Python environment, logged-in account and headless Android launcher.
 All settings and evidence stay in the ignored `accounts/<username>/growth` directory.
 
-The worker permits at most five follows and ten likes per day. Earlier manual bot
-sessions count toward those limits. It processes at most five fresh profiles,
+The worker permits at most ten follows and twenty likes per day. Earlier manual bot
+sessions and conservatively reserved manual batches count toward those limits. It processes at most ten fresh profiles,
 with at most two likes each. The bot's comments, private messages, unfollows and
 publishing remain disabled. A separate optional helper can post at most two
 prepared public comments as `uk.tradeleads` per UK day. These limits bound the session; they do not guarantee account safety
@@ -16,7 +16,7 @@ or follower growth. Instagram restrictions stop the worker for review.
 Create `settings.json` containing:
 
 ```json
-{"dailyFollows": 5, "dailyLikes": 10, "timezone": "Europe/London"}
+{"dailyFollows": 10, "dailyLikes": 20, "timezone": "Europe/London"}
 ```
 
 `queue.json` contains `preparedAt` and `targets`. Each target needs `handle`,
@@ -163,8 +163,10 @@ The `Growth status.command`, `Pause daily growth.command` and
 `Resume daily growth.command` controls in `~/Applications/InstaAddict` operate on
 this MacBook's runtime checkout. Status also prints the live launchd state and last
 exit code. Old SSH controls targeting the mini do not control the current worker.
-Comments remain disabled in the current account's private policy; the optional
-comment helper documented above must not be enabled as part of a scheduling repair.
+Public comments require a finite queue of individually checked posts and specific,
+non-promotional wording. The account owner requested two such comments daily on
+24 November. Replenish that queue from real post context; never reuse expired
+entries or repeat historical comments. DMs, publishing and unfollows stay disabled.
 
 The Mac must remain powered and its user logged in. A sleeping Mac runs
 the missed calendar job when it wakes; a powered-off Mac cannot run it. The
@@ -197,3 +199,25 @@ the previous journal under an attempt filename in `days`, archive the fault with
 the repair evidence, and reconcile all confirmed actions before another run.
 The scheduler never performs this recovery. Recorded `Followed @...` transitions
 are charged even if interruption preceded the bot's per-profile counter update.
+
+## Daily operation and maintenance
+
+The owner requested daily operation, including weekends, on 24 November. The
+current caps are 10 follows, 20 likes and 2 prepared public comments. These are
+maximums, not guaranteed totals. The live settings may retain lower caps during a
+review; invalid or above-maximum settings fail closed. Every journal snapshots the
+configured daily caps independently of the remaining budget. A started day keeps
+its original action records and reservations when future caps change.
+
+The daily 11:30 Europe/London maintenance check reads the actual process, scheduler,
+day journal, log and saved session. It distinguishes success, skips, interrupted
+runs and missing journals. It also owns source-verified prospect replenishment and
+preparation of two unique, contextual public comments for the next run. A finite
+queue is not an indefinite supply. No generic praise queue, promotional pitches or
+automatic retries are permitted.
+
+The dedicated device updated Instagram through Google Play during the 24 November
+supervised batch. Android's exit record reported PACKAGE UPDATED, not a crash.
+Instagram's per-app Play Store auto-update checkbox was switched off and read back
+as unchecked. Review future Instagram upgrades deliberately before running the
+bot; keep normal restriction, crash and foreground-loss stops enabled.

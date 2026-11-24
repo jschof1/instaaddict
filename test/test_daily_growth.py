@@ -1,5 +1,5 @@
 """Critical daily-budget and replay protection, without a device or dependencies."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import ExitStack
 import importlib.util
 from pathlib import Path
@@ -108,8 +108,8 @@ class DailyGrowthTests(unittest.TestCase):
             daily.select_targets({"targets": [entry]}, {}, [], "owner", 5)
 
     def test_odd_remaining_like_budget_cannot_overshoot(self):
-        for follows in range(1, 6):
-            for likes in range(1, 11):
+        for follows in range(1, 11):
+            for likes in range(1, 21):
                 handles = ["target" + str(i) for i in range(min(follows, likes))]
                 c = daily.bot_config("owner", handles, follows, likes)
                 self.assertLessEqual(len(handles), follows)
@@ -121,6 +121,26 @@ class DailyGrowthTests(unittest.TestCase):
                 for key in ("pm-percentage", "comment-percentage", "total-pm-limit", "total-comments-limit", "total-unfollows-limit"):
                     self.assertEqual(c[key], 0)
                 self.assertNotIn("repeat", c)
+
+    def test_configured_caps_accept_legacy_and_increased_daily_budget(self):
+        for follows, likes in [(5, 10), (10, 20)]:
+            self.assertEqual(daily.configured_limits({"dailyFollows": follows,
+                "dailyLikes": likes, "timezone": "Europe/London"}),
+                {"follows": follows, "likes": likes})
+        for key, value in [("dailyFollows", 11), ("dailyLikes", 21),
+                           ("dailyFollows", True), ("dailyLikes", 0)]:
+            settings = {"dailyFollows": 10, "dailyLikes": 20, "timezone": "Europe/London"}
+            settings[key] = value
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                daily.configured_limits(settings)
+
+    def test_larger_budget_still_charges_all_reserved_likes_after_interruption(self):
+        journal = {"day": "2026-10-19", "config": "larger.yml", "sessionIds": [],
+                   "reservedLikeBudget": 20, "observedFollowHandles": ["one", "two"]}
+        self.assertEqual(daily.accounting_totals([], "2026-10-19", [journal]),
+                         {"follows": 2, "likes": 20})
+        config = daily.bot_config("owner", [f"target{i}" for i in range(10)], 10, 20)
+        self.assertEqual((config["likes-count"], config["total-follows-limit"], config["total-likes-limit"]), (2, 10, 20))
 
     def test_restriction_and_hang_lines_stop_run(self):
         for line in ["A serius block detected", "Watchdog Tier 1 recovery", "Watchdog Tier 2 recovery", "Traceback (most recent call last)", "challenge_required", "App has crashed / has been closed!", "Can't go back to the profile; ending interaction.", "Could not return from Peek Preview; ending interaction.", "Profile grid unavailable after failed post open; ending interaction."]:
@@ -213,7 +233,8 @@ class DailyGrowthTests(unittest.TestCase):
 
     def comment_setup(self, repo, account, growth):
         from test_public_comments import entry
-        prepared = entry()
+        # Lifecycle tests run against today's clock; fixed October entries expire.
+        prepared = entry(expiresAt=(datetime.now(daily.UK) + timedelta(days=7)).isoformat())
         daily.write_json(growth / "comment-policy.json", {"enabled": True, "dailyLimit": 2, "timezone": "Europe/London"})
         daily.write_json(growth / "comment-queue.json", {"comments": [prepared]})
         daily.write_json(growth / "comment-ledger.json", {"version": 1, "intents": []})

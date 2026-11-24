@@ -36,6 +36,21 @@ STOP = re.compile(
     r"Multiple consecutive post open failures|Can't find the post element|Crash saved as", re.I
 )
 GIB = 1024 ** 3
+MAX_DAILY_FOLLOWS = 10
+MAX_DAILY_LIKES = 20
+
+
+def configured_limits(settings):
+    """Validate the operator's daily caps; never infer a larger budget."""
+    if (not isinstance(settings, dict)
+            or set(settings) != {"dailyFollows", "dailyLikes", "timezone"}
+            or settings["timezone"] != "Europe/London"):
+        raise ValueError("Unexpected daily settings")
+    limits = {"follows": settings["dailyFollows"], "likes": settings["dailyLikes"]}
+    for key, maximum in (("follows", MAX_DAILY_FOLLOWS), ("likes", MAX_DAILY_LIKES)):
+        if type(limits[key]) is not int or not 1 <= limits[key] <= maximum:
+            raise ValueError("Invalid daily " + key + " limit")
+    return limits
 
 
 def read_json(path, default=None):
@@ -145,7 +160,8 @@ def select_targets(manifest, interacted, journals, username, count):
 
 
 def bot_config(username, targets, follows, likes):
-    if not targets or not 1 <= follows <= 5 or not 1 <= likes <= 10:
+    if (not targets or not 1 <= follows <= MAX_DAILY_FOLLOWS
+            or not 1 <= likes <= MAX_DAILY_LIKES):
         raise ValueError("No action budget")
     likes_each = min(2, likes // len(targets))
     if likes_each < 1 or len(targets) > follows:
@@ -287,12 +303,12 @@ def run_session(repo, account, growth):
         print("Today's session already started; no automatic retry.")
         return 0
     settings = read_json(growth / "settings.json")
-    if settings != {"dailyFollows": 5, "dailyLikes": 10, "timezone": "Europe/London"}:
-        raise ValueError("Unexpected daily settings")
+    limits = configured_limits(settings)
     totals = accounting_totals(read_json(account / "sessions.json", []), day, journals)
-    if totals["follows"] > 5 or totals["likes"] > 10:
+    if any(totals[key] > limits[key] for key in limits):
         raise ValueError("Daily action limit already exceeded")
-    follows, likes = max(0, 5 - totals["follows"]), max(0, 10 - totals["likes"])
+    follows = max(0, limits["follows"] - totals["follows"])
+    likes = max(0, limits["likes"] - totals["likes"])
     targets = select_targets(read_json(growth / "queue.json", {"targets": []}), read_json(account / "interacted_users.json", {}), journals, account.name, min(follows, likes))
     public_comments.recover_reservations(growth)
     comments, pending_comments, _ = public_comments.plan(growth, day)
@@ -336,7 +352,7 @@ def run_session(repo, account, growth):
         config_path.write_text("\n".join(key + ": " + json.dumps(value) for key, value in conf.items()) + "\n")
         os.chmod(config_path, 0o600)
         preflight(repo, config_path)
-    journal = {"day": day, "startedAt": now(), "status": "running", "targets": targets, "config": str(config_path) if config_path else None, "budgetBefore": totals, "limits": {"follows": follows, "likes": likes}, "comments": comments, "reservedLikeBudget": 0}
+    journal = {"day": day, "startedAt": now(), "status": "running", "targets": targets, "config": str(config_path) if config_path else None, "budgetBefore": totals, "limits": {"follows": follows, "likes": likes}, "dailyLimits": limits, "comments": comments, "reservedLikeBudget": 0}
     write_json(journal_path, journal)
     write_json(state_path, journal)
     vm = bot = caffeinate = None
@@ -420,7 +436,7 @@ def run_session(repo, account, growth):
                 journal["sessionIds"] = [s["id"] for s in relevant]
                 write_json(journal_path, journal)
                 after = accounting_totals(read_json(account / "sessions.json", []), day, journals + [journal])
-                if after["follows"] > 5 or after["likes"] > 10:
+                if any(after[key] > limits[key] for key in limits):
                     raise ValueError("Daily action limit exceeded")
             journal["comments"] = run_comment_phase(repo, account, growth, day, env, vm, started, log)
     except BaseException as exc:
@@ -451,7 +467,7 @@ def run_session(repo, account, growth):
             after = accounting_totals(sessions, day, journals + [journal])
             journal["totalsAfter"] = after
             journal["botRecordedActions"] = {"follows": sum(s["total_followed"] for s in relevant), "likes": sum(s["total_likes"] for s in relevant)}
-            if after["follows"] > 5 or after["likes"] > 10:
+            if any(after[key] > limits[key] for key in limits):
                 raise ValueError("Daily action limit exceeded")
             if config_path and not manual_pause:
                 saved_bot_job(account, growth, config_path, day)
@@ -493,7 +509,7 @@ def main():
     if args.command == "status":
         journals = [read_json(p) for p in (growth / "days").glob("*.json")]
         pending = select_targets(read_json(growth / "queue.json", {"targets": []}), read_json(account / "interacted_users.json", {}), journals, args.account, 10000)
-        print(json.dumps({"paused": (growth / "paused.json").exists(), "fault": read_json(growth / "fault.json"), "latest": read_json(growth / "state.json"), "pendingProfiles": len(pending), "comments": public_comments.plan(growth)[0]}, indent=2))
+        print(json.dumps({"paused": (growth / "paused.json").exists(), "fault": read_json(growth / "fault.json"), "configuredDailyLimits": configured_limits(read_json(growth / "settings.json")), "latest": read_json(growth / "state.json"), "pendingProfiles": len(pending), "comments": public_comments.plan(growth)[0]}, indent=2))
         return 0
     if args.command == "pause":
         write_json(growth / "paused.json", {"at": now()})
