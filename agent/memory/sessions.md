@@ -1208,3 +1208,16 @@
   deferred:
     - fresh-next-day-comment-source-verification-pending-resource-admission-and-live-source-access
   key_fact: "Resource-guard refusal can occur before a daily journal exists. A loaded schedule and an older finished session do not establish completion of the intended day. Keep private account, prospect and action receipts outside Git."
+
+- date: 2026-11-25
+  executor: Codex
+  branch: t3/maintain-uktradeleads-daily
+  tasks: []
+  done:
+    - completed-bounded-read-only-maintenance-checkpoint
+    - verified-schedules-locks-private-supplies-and-no-day-replay
+    - reconciled-failed-supported-device-open-and-owned-orphan-exit
+    - updated-both-private-status-records-and-one-next-checkpoint
+  deferred:
+    - fresh-comment-source-verification-pending-supported-device-boot-recovery
+  key_fact: "Light resource admission can recover while supported Android tooling still fails before UI access. Preserve existing draft expiries and record fresh source verification as unavailable; a boot attempt is not post evidence."
