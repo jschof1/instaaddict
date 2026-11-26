@@ -141,8 +141,10 @@ class TestReelsAdAndFollowFix:
     ):
         """Verify that _comment() is called while the post is open, before device.back() returns to profile."""
         from InstaAddict.core.interaction import interact_with_user
+        from InstaAddict.core.views import PostsGridView
 
         mock_device = MagicMock()
+        mock_device._ig_is_opened.return_value = True
         mock_session = MagicMock()
         mock_session.check_limit.return_value = False
         mock_session.Limit.LIKES = "likes"
@@ -165,10 +167,11 @@ class TestReelsAdAndFollowFix:
         post_view_inst._is_post_liked.return_value = (False, None)
         post_view_inst.like_post.return_value = True
 
-        grid_inst = MagicMock()
-        grid_inst.navigateToPost.return_value = (post_view_inst, MediaType.PHOTO, 1)
-        # First call to _is_still_on_profile returns False (post is open), second call returns True (after device.back)
-        grid_inst._is_still_on_profile.side_effect = [False, True]
+        grid_inst = PostsGridView(mock_device)
+        grid_inst.navigateToPost = MagicMock(return_value=(post_view_inst, MediaType.PHOTO, 1))
+        # Exercise bounded recovery: post is open, then the first Back restores the grid.
+        grid_inst._is_still_on_profile = MagicMock(side_effect=[False, True])
+        grid_inst.return_to_profile = MagicMock(wraps=grid_inst.return_to_profile)
         mock_grid_view.return_value = grid_inst
 
         prof_view_inst = MagicMock()
@@ -188,8 +191,10 @@ class TestReelsAdAndFollowFix:
         mock_device.back.side_effect = lambda *args, **kwargs: call_order.append("device.back")
 
         with patch("InstaAddict.core.interaction.can_like", return_value=True), \
-             patch("InstaAddict.core.interaction.can_comment", return_value=True):
-            interact_with_user(
+             patch("InstaAddict.core.interaction.can_comment", return_value=True), \
+             patch("InstaAddict.core.views.OpenedPostView.is_peek_preview_opened", return_value=False), \
+             patch("InstaAddict.core.views.random_sleep"):
+            result = interact_with_user(
                 device=mock_device,
                 username="test_user",
                 my_username="bot_user",
@@ -207,13 +212,8 @@ class TestReelsAdAndFollowFix:
                 current_mode="hashtag-posts-recent",
             )
 
-        # Assert that like_post happened first, then _comment, and then device.back to exit to profile grid
-        assert "like_post" in call_order
-        assert "_comment" in call_order
-        assert "device.back" in call_order
-        like_idx = call_order.index("like_post")
-        comment_idx = call_order.index("_comment")
-        back_idx = call_order.index("device.back")
-
-        assert like_idx < comment_idx, f"like_post ({like_idx}) should happen before _comment ({comment_idx})"
-        assert comment_idx < back_idx, f"_comment ({comment_idx}) should happen before device.back ({back_idx})"
+        assert call_order == ["like_post", "_comment", "device.back"]
+        grid_inst.return_to_profile.assert_called_once_with()
+        assert grid_inst._is_still_on_profile.call_count == 2
+        mock_device.back.assert_called_once_with()
+        assert (result[5], result[7]) == (1, 1)

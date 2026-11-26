@@ -286,118 +286,121 @@ def open_instagram(device):
         target_app = "com.instagram.android"
     logger.info(f"Open Instagram app ({target_app}).")
 
-    def call_ig():
-        try:
-            device.deviceV2.app_start(target_app, use_monkey=True)
-            return None
-        except Exception as exc:
-            return exc
+    from InstaAddict.core.watchdog import StartupGrace
 
-    try:
-        from InstaAddict.core.watchdog import record_heartbeat
-        record_heartbeat("startup", f"Calling Instagram app ({target_app})")
-    except Exception:
-        pass
+    with StartupGrace(f"Launching Instagram ({target_app})"):
+        def call_ig():
+            try:
+                device.deviceV2.app_start(target_app, use_monkey=True)
+                return None
+            except Exception as exc:
+                return exc
 
-    err = call_ig()
-    if err:
-        logger.error(f"Failed to call Instagram ({target_app}): {err}")
-        return False
-    else:
-        logger.debug("Instagram called successfully.")
-
-    max_tries = 6
-    n = 0
-    while True:
         try:
             from InstaAddict.core.watchdog import record_heartbeat
-            record_heartbeat("startup", f"Waiting for Instagram to open ({n}/{max_tries})")
+            record_heartbeat("startup", f"Calling Instagram app ({target_app})")
         except Exception:
             pass
-        curr = {}
-        if hasattr(device, "deviceV2") and hasattr(device.deviceV2, "app_current"):
-            try:
-                raw_curr = device.deviceV2.app_current()
-                if isinstance(raw_curr, dict):
-                    curr = raw_curr
-            except Exception:
-                pass
-        curr_pkg = curr.get("package", "")
-        if curr_pkg == target_app:
-            break
 
-        # Check for interfering overlay apps (e.g. Google Play Store com.android.vending, browser, dialogs)
-        system_pkgs = (
-            "android",
-            "com.android.systemui",
-            "com.google.android.apps.nexuslauncher",
-            "com.android.launcher3",
-            "com.google.android.inputmethod.latin",
-        )
-        if curr_pkg and curr_pkg != target_app and curr_pkg not in system_pkgs:
-            logger.warning(
-                f"Detected interfering non-target foreground package '{curr_pkg}'. Force-stopping package to clear overlay/dialog..."
-            )
-            try:
-                if hasattr(device, "shell"):
-                    device.shell(f"am force-stop {curr_pkg}")
-                elif hasattr(device, "deviceV2") and hasattr(device.deviceV2, "app_stop"):
-                    device.deviceV2.app_stop(curr_pkg)
-            except Exception as stop_err:
-                logger.debug(f"Failed to force-stop interfering package {curr_pkg}: {stop_err}")
-            try:
-                if hasattr(device, "back"):
-                    device.back()
-            except Exception:
-                pass
-            try:
-                from InstaAddict.core.views import UniversalActions
-                UniversalActions.dismiss_dialog(device)
-            except Exception:
-                pass
-
-        if n >= max_tries:
-            logger.critical(
-                f"Unable to open Instagram. Bot will stop. Current package name: {curr_pkg or 'unknown'} (Looking for {target_app})"
-            )
+        err = call_ig()
+        if err:
+            logger.error(f"Failed to call Instagram ({target_app}): {err}")
             return False
-        n += 1
-        logger.info(f"Waiting for Instagram to open... 😴 ({n}/{max_tries})")
-        if check_if_crash_popup_is_there(device):
-            logger.info("Ig crashed, try to open it again...")
-        call_ig()
-        choose_cloned_app(device)
-        random_sleep(3, 3, modulable=False)
+        else:
+            logger.debug("Instagram called successfully.")
 
-    # Wait up to 8s for Instagram main UI to settle
-    try:
-        from InstaAddict.core.views import TabBarView, UniversalActions
-        tab_bar = TabBarView(device)
-        settle_timeout = 8
-        start_settle = time.time()
-        logger.debug("Waiting for Instagram main UI to settle...")
-        while time.time() - start_settle < settle_timeout:
+        max_tries = 6
+        n = 0
+        while True:
             try:
                 from InstaAddict.core.watchdog import record_heartbeat
-                record_heartbeat("startup", "Waiting for Instagram main UI to settle")
+                record_heartbeat("startup", f"Waiting for Instagram to open ({n}/{max_tries})")
             except Exception:
                 pass
-            if check_if_crash_popup_is_there(device):
-                logger.info("Instagram crashed during startup, trying to open again...")
-                call_ig()
-            UniversalActions.dismiss_dialog(device)
-            if tab_bar.is_tab_bar_visible():
-                logger.debug("Instagram main UI detected (tab bar visible).")
+            curr = {}
+            if hasattr(device, "deviceV2") and hasattr(device.deviceV2, "app_current"):
+                try:
+                    raw_curr = device.deviceV2.app_current()
+                    if isinstance(raw_curr, dict):
+                        curr = raw_curr
+                except Exception:
+                    pass
+            curr_pkg = curr.get("package", "")
+            if curr_pkg == target_app:
                 break
-            random_sleep(0.8, 1.4, modulable=False)
-    except Exception as e:
-        logger.debug(f"UI settle check encountered: {e}")
 
-    try:
-        from InstaAddict.core.watchdog import record_heartbeat
-        record_heartbeat("startup", "Instagram main UI ready")
-    except Exception:
-        pass
+            # Check for interfering overlay apps (e.g. Google Play Store com.android.vending, browser, dialogs)
+            system_pkgs = (
+                "android",
+                "com.android.systemui",
+                "com.google.android.apps.nexuslauncher",
+                "com.android.launcher3",
+                "com.google.android.inputmethod.latin",
+            )
+            if curr_pkg and curr_pkg != target_app and curr_pkg not in system_pkgs:
+                logger.warning(
+                    f"Detected interfering non-target foreground package '{curr_pkg}'. Force-stopping package to clear overlay/dialog..."
+                )
+                try:
+                    if hasattr(device, "shell"):
+                        device.shell(f"am force-stop {curr_pkg}")
+                    elif hasattr(device, "deviceV2") and hasattr(device.deviceV2, "app_stop"):
+                        device.deviceV2.app_stop(curr_pkg)
+                except Exception as stop_err:
+                    logger.debug(f"Failed to force-stop interfering package {curr_pkg}: {stop_err}")
+                try:
+                    if hasattr(device, "back"):
+                        device.back()
+                except Exception:
+                    pass
+                try:
+                    from InstaAddict.core.views import UniversalActions
+                    UniversalActions.dismiss_dialog(device)
+                except Exception:
+                    pass
+
+            if n >= max_tries:
+                logger.critical(
+                    f"Unable to open Instagram. Bot will stop. Current package name: {curr_pkg or 'unknown'} (Looking for {target_app})"
+                )
+                return False
+            n += 1
+            logger.info(f"Waiting for Instagram to open... 😴 ({n}/{max_tries})")
+            if check_if_crash_popup_is_there(device):
+                logger.info("Ig crashed, try to open it again...")
+            call_ig()
+            choose_cloned_app(device)
+            random_sleep(3, 3, modulable=False)
+
+        # Wait up to 8s for Instagram main UI to settle
+        try:
+            from InstaAddict.core.views import TabBarView, UniversalActions
+            tab_bar = TabBarView(device)
+            settle_timeout = 8
+            start_settle = time.time()
+            logger.debug("Waiting for Instagram main UI to settle...")
+            while time.time() - start_settle < settle_timeout:
+                try:
+                    from InstaAddict.core.watchdog import record_heartbeat
+                    record_heartbeat("startup", "Waiting for Instagram main UI to settle")
+                except Exception:
+                    pass
+                if check_if_crash_popup_is_there(device):
+                    logger.info("Instagram crashed during startup, trying to open again...")
+                    call_ig()
+                UniversalActions.dismiss_dialog(device)
+                if tab_bar.is_tab_bar_visible():
+                    logger.debug("Instagram main UI detected (tab bar visible).")
+                    break
+                random_sleep(0.8, 1.4, modulable=False)
+        except Exception as e:
+            logger.debug(f"UI settle check encountered: {e}")
+
+        try:
+            from InstaAddict.core.watchdog import record_heartbeat
+            record_heartbeat("startup", "Instagram main UI ready")
+        except Exception:
+            pass
 
     logger.info("Ready for botting!🤫", extra={"color": f"{Style.BRIGHT}{Fore.GREEN}"})
 

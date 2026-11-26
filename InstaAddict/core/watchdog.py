@@ -359,3 +359,36 @@ def record_heartbeat(stage: Optional[str] = None, action: Optional[str] = None) 
             BotWatchdog.get_instance().heartbeat(stage=stage, action=action)
     except Exception:
         pass
+
+
+class StartupGrace:
+    """Keep the heartbeat fresh while a blocking app launch is in progress.
+
+    Instagram's cold start on an emulator can block a single uiautomator call
+    for more than the 90s soft timeout. The grace is bounded, so a launch that
+    is still stuck after ``limit`` seconds lets the watchdog fire as normal.
+    """
+
+    def __init__(self, action: str, limit: float = 240.0, interval: float = 10.0):
+        self.action = action
+        self.limit = limit
+        self.interval = interval
+        self._done = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+
+    def _beat(self) -> None:
+        deadline = time.monotonic() + self.limit
+        while time.monotonic() < deadline and not self._done.wait(self.interval):
+            if time.monotonic() < deadline:
+                record_heartbeat("startup", self.action)
+
+    def __enter__(self) -> "StartupGrace":
+        record_heartbeat("startup", self.action)
+        self._thread = threading.Thread(target=self._beat, name="StartupGrace", daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._done.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)

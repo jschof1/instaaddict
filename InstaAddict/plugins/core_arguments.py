@@ -384,7 +384,7 @@ class CoreArguments(Plugin):
             {
                 "arg": "--disable-block-detection",
                 "help": "disable block detection",
-                "action": "store_false",
+                "action": "store_true",
             },
             {
                 "arg": "--pre-script",

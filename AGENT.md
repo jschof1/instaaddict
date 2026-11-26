@@ -1,5 +1,9 @@
 # Agent Context Protocol Enhanced (ACP Enhanced)
 
+> This checkout operates Instagram for UK Trade Leads. Start with the
+> [UK Trade Leads deployment guide](docs/uk-trade-leads.md) for its purpose,
+> connected projects and source-backed operating scope.
+
 **Also Known As**: The Agent Directory Pattern
 **Version**: 6.40.0
 **Fork of**: [prmichaelsen/agent-context-protocol](https://github.com/prmichaelsen/agent-context-protocol)

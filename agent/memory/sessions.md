@@ -1195,6 +1195,111 @@
   deferred: []
   key_fact: "Iterating atomic grapheme clusters instead of raw code points in device_facade prevents FastInputIME keystroke splitting on compound emojis, while programmatic regex stripping of ZWJs in gemini_vision provides defense-in-depth against Android IME encoding crashes."
 
+- date: 2026-10-19
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - prefer-profile-action-resource-ids-over-non-clickable-following-count-labels
+    - require-clickable-follow-and-confirmation-actions
+    - correct-inverted-disable-block-detection-option-to-keep-detection-enabled-by-default
+    - add-profile-selector-and-follow-action-regressions-with-config-boolean-coverage
+  checks: 12 focused unittest cases passed on the Android host Python environment
+  deferred: []
+  key_fact: "Instagram 451 exposes a non-clickable following count label before the clickable Follow action; matching text alone can both skip prospects and falsely confirm a follow."
+
+- date: 2026-10-19
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - resolve-instagram-451-profile-grid-cells-from-hierarchy-and-exclude-clipped-rows
+    - recognise-both-carousel-container-identifiers-and-distinguish-peek-menus-from-post-icons
+    - bound-tab-post-and-profile-recovery-without-stale-double-taps-or-extra-back-actions
+    - record-legitimate-interaction-progress-without-disabling-the-hang-watchdog
+    - add-private-daily-growth-worker-with-uk-day-action-accounting-and-owned-emulator-cleanup
+    - preserve-confirmed-follow-log-transitions-when-interrupted-before-profile-accounting
+    - verify-full-guarded-live-job-and-automatic-emulator-shutdown
+  checks: "162 targeted regression tests and 49 subtests passed in the Android host environment; the subsequent 12-case daily-worker subset includes an additional passing manual-pause lifecycle test. The guarded live job completed two profiles, recorded two follows and four likes, and saved zero crashes or watchdog recoveries."
+  deferred: []
+  key_fact: "Instagram 451 uses carousel_image_media_group, and clips grid bounds to the viewport. A successful process exit alone cannot prove a complete job; the daily worker requires saved job metrics and retains earlier confirmed actions before any deliberate repair validation. Private account data and the reviewed finite queue remain outside Git."
+
+- date: 2026-11-24
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - audit-the-retired-mini-and-current-macbook-scheduler-without-new-instagram-actions
+    - verify-23-november-completed-session-recorded-three-follows-and-four-likes
+    - diagnose-24-november-launchd-exit-78-and-documents-privacy-denial
+    - relocate-the-single-checkout-to-home-github-with-original-path-symlinked
+    - repair-macbook-launchagent-and-local-status-pause-resume-controls
+    - validate-status-config-and-android-input-readability-through-readonly-launchagents
+    - retain-all-seven-protected-account-file-hashes-and-daily-no-retry-limits
+  checks: "Read-only launchd status and dependency/configuration probes exited 0; plist lint and local pause/resume lifecycle passed. Mini scheduler remains unloaded. No application code changed; no Instagram batch was started."
+  deferred:
+    - verify-first-repaired-automatic-run-on-25-november-at-11-30-utc
+    - review-finite-prospect-stock-before-30-november
+  key_fact: "A worker that works in a terminal can still fail before execution under launchd when its working directory or logs are under Documents. Validate with a read-only launchd probe, and keep the last completed account journal distinct from today's scheduled launch."
+
+- date: 2026-11-24
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - act-on-owner-request-for-daily-work-and-higher-action-caps
+    - record-one-follow-and-one-like-with-native-device-confirmation-before-package-update-interruption
+    - retain-faulted-partial-day-and-conservative-like-reservation-without-replay
+    - diagnose-google-play-package-updated-exit-and-disable-per-app-instagram-auto-update
+    - verify-updated-instagram-own-account-post-and-comment-ui-without-further-social-actions
+    - configure-ten-follows-twenty-likes-and-two-source-checked-public-comments-for-future-days
+    - add-seven-official-site-linked-uk-business-prospects-with-source-receipts
+    - replace-one-off-check-with-daily-eleven-thirty-result-and-stock-maintenance
+    - fix-expired-comment-test-fixtures-and-test-increased-budget-reservations
+  checks: "50 targeted tests and 58 subtests passed; native readback retained the outgoing follow and selected like after Instagram updated. Today's 1/1 actions are supervised evidence, not a completed bot session."
+  deferred:
+    - first-automatic-run-under-increased-caps-due-25-november-ten-am
+    - recurring-source-verified-queue-maintenance-at-eleven-thirty-daily
+  key_fact: "Android exit reason 16 PACKAGE UPDATED identifies Google Play replacing Instagram during an active session. Keep that partial day faulted, prevent replay, disable per-app auto-updates with UI readback, and release only future days after review."
+
+- date: 2026-11-24
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  done:
+    - register-and-verify-separate-t3-project-instaaddict-uk-trade-leads
+    - add-manual-status-pause-resume-controls-without-automatic-live-actions
+    - connect-the-uktl-website-t3-project-with-a-readonly-instagram-status-shortcut
+    - record-uktl-acquisition-purpose-related-projects-and-commercial-outcome-evidence
+    - place-recurring-maintenance-in-the-new-project-and-disable-the-superseded-no-project-task
+  checks: "Project settings and task ownership read back; no runtime action policy, queue, day journal or live Instagram action changed. Documentation and agent identity only."
+  deferred:
+    - first-higher-cap-automatic-run-and-daily-result-check-in-the-registered-project
+  key_fact: "The separate T3 project is InstaAddict · UK Trade Leads, rooted at ~/GitHub/instaaddict. It is a UKTL acquisition channel; project connections do not constitute an automatic Instagram-to-CRM integration."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  tasks: []
+  done:
+    - reconciled-comment-helper-stop-with-captured-empty-composer-prompt
+    - accepted-exact-start-conversation-placeholder-without-widening-draft-validation
+    - verified-comment-and-daily-budget-replay-tests
+  deferred:
+    - existing-uncertain-intent-and-safety-fault-remain-held-without-retry
+  key_fact: "An unfamiliar empty composer prompt can cause a safe pre-submit stop. Add only an observed exact placeholder, retain unknown-draft rejection, and preserve consumed intents and fault evidence independently of the code repair."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  tasks: []
+  done:
+    - completed-bounded-read-only-fault-and-action-evidence-review
+    - reproduced-observed-liked-label-with-false-selected-flag-offline
+    - repaired-opened-post-and-video-heart-state-checks-to-fail-closed-on-unknown
+    - passed-71-focused-tests-and-74-subtests-through-light-resource-guard
+    - documented-pre-submit-consumption-and-preserved-both-independent-safety-holds
+    - verified-enabled-daily-schedules-and-unchanged-private-action-budgets-and-supplies
+  deferred:
+    - per-attempt-like-outcomes-remain-unproved-without-contemporaneous-receipts
+    - safety-fault-and-consumed-uncertain-comment-intent-remain-held-for-recurring-review
+  key_fact: "Instagram can expose Liked with selected=false. Exact accessibility-label regression checks repair this state reader without proving historical actions, authorizing engagement validation or releasing an uncertain intent. Keep private receipts outside Git."
+
 - date: 2026-11-25
   executor: Codex
   branch: t3/maintain-uktradeleads-daily

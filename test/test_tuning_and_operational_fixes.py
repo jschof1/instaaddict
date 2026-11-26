@@ -1,4 +1,7 @@
+import re
 from unittest.mock import MagicMock, patch, PropertyMock
+
+import pytest
 
 from InstaAddict.core.device_facade import DeviceFacade, Mode
 from InstaAddict.core.utils import EmptyList
@@ -196,9 +199,11 @@ def test_handle_likers_handles_empty_list():
         assert any("Likers list is empty or reached the end" in str(call) for call in mock_logger.info.call_args_list)
 
 
-def test_peek_preview_no_false_positive_on_reels_and_feed_posts():
-    """Verify that is_peek_preview_opened returns False on standard Reels and Posts where Like, Comment, and Share are present but Repost/Report are absent."""
-    from InstaAddict.core.views import OpenedPostView
+@pytest.mark.parametrize("resource_name", ["ROW_FEED_BUTTON_LIKE", "LIKE_BUTTON"])
+@pytest.mark.parametrize("has_context", [False, True])
+def test_peek_preview_no_false_positive_on_reels_and_feed_posts(resource_name, has_context):
+    """Ordinary post actions veto Peek even when matching menu text is present."""
+    from InstaAddict.core.views import ClassName, OpenedPostView, ResourceID
 
     mock_device = MagicMock()
     mock_device._ig_is_opened.return_value = True
@@ -207,13 +212,16 @@ def test_peek_preview_no_false_positive_on_reels_and_feed_posts():
 
     def mock_find(**kwargs):
         elem = MagicMock()
-        regex_pat = str(kwargs.get("textMatches", "") or kwargs.get("descriptionMatches", ""))
-        # Like/Unlike exists on standard post/reel
-        if "Like" in regex_pat or "Unlike" in regex_pat:
+        resource_pattern = kwargs.get("resourceIdMatches", "")
+        text_pattern = kwargs.get("textMatches", "")
+        if resource_pattern and re.fullmatch(resource_pattern, getattr(ResourceID, resource_name)):
             elem.exists.return_value = True
-        # Repost/Report DO NOT exist on standard post/reel root view
-        elif "Repost" in regex_pat or "Report" in regex_pat:
-            elem.exists.return_value = False
+        elif kwargs.get("className") == ClassName.TEXT_VIEW and re.fullmatch(text_pattern, "Like"):
+            elem.exists.return_value = True
+            elem.get_bounds.return_value = {"left": 100, "top": 600, "right": 300, "bottom": 640}
+        elif kwargs.get("className") == ClassName.TEXT_VIEW and re.fullmatch(text_pattern, "Report"):
+            elem.exists.return_value = has_context
+            elem.get_bounds.return_value = {"left": 100, "top": 680, "right": 300, "bottom": 720}
         else:
             elem.exists.return_value = False
         return elem
@@ -224,28 +232,40 @@ def test_peek_preview_no_false_positive_on_reels_and_feed_posts():
     assert opv.is_peek_preview_opened() is False
 
 
-def test_peek_preview_detects_real_peek_preview():
-    """Verify that is_peek_preview_opened returns True on genuine 3D Touch / Peek Preview popup cards."""
-    from InstaAddict.core.views import OpenedPostView
+@pytest.mark.parametrize("like_label", ["Like", "Unlike"])
+@pytest.mark.parametrize("context_label", ["Repost", "Report"])
+def test_peek_preview_detects_real_peek_preview(like_label, context_label):
+    """Require both vertical TextView options with real bounds for a Peek menu."""
+    from InstaAddict.core.views import ClassName, OpenedPostView
 
     mock_device = MagicMock()
     mock_device._ig_is_opened.return_value = True
 
     opv = OpenedPostView(mock_device)
+    like_option = MagicMock()
+    like_option.exists.return_value = True
+    like_option.get_bounds.return_value = {"left": 100, "top": 600, "right": 300, "bottom": 640}
+    context_option = MagicMock()
+    context_option.exists.return_value = True
+    context_option.get_bounds.return_value = {"left": 100, "top": 680, "right": 300, "bottom": 720}
 
     def mock_find(**kwargs):
+        text_pattern = kwargs.get("textMatches", "")
+        if kwargs.get("className") == ClassName.TEXT_VIEW:
+            if re.fullmatch(text_pattern, like_label):
+                return like_option
+            if re.fullmatch(text_pattern, context_label):
+                return context_option
         elem = MagicMock()
-        regex_pat = str(kwargs.get("textMatches", "") or kwargs.get("descriptionMatches", ""))
-        # Repost/Report exists in Peek Preview context menu
-        if "Repost" in regex_pat or "Report" in regex_pat:
-            elem.exists.return_value = True
-        else:
-            elem.exists.return_value = False
+        elem.exists.return_value = False
         return elem
 
     mock_device.find.side_effect = mock_find
 
     assert opv.is_peek_preview_opened() is True
+
+    like_option.exists.return_value = False
+    assert opv.is_peek_preview_opened() is False
 
 
 def test_is_tab_bar_visible_catches_app_has_crashed():
@@ -896,15 +916,25 @@ def test_hashtag_and_places_view_get_first_image_view_alias():
     assert pv._getFistImageView == pv._getFirstImageView
 
 
-def test_opened_post_view_is_post_opened_includes_reels_and_clips():
-    """Verify OpenedPostView.is_post_opened recognizes both feed posts and Reels/Clips viewers (CO-073)."""
-    from InstaAddict.core.views import OpenedPostView
+@pytest.mark.parametrize("resource_name", [
+    "ZOOMABLE_VIEW_CONTAINER", "ROW_FEED_PHOTO_IMAGEVIEW", "CLIPS_VIDEO_CONTAINER",
+    "ROOT_CLIPS_LAYOUT", "CLIPS_VIEWER_CONTAINER", "CLIPS_VIEWER_VIEW_PAGER",
+])
+def test_opened_post_view_is_post_opened_includes_reels_and_clips(resource_name):
+    """Confirm posts only from an explicit media/viewer resource ID (CO-073)."""
+    from InstaAddict.core.views import OpenedPostView, ResourceID
     from unittest.mock import MagicMock
 
     mock_device = MagicMock()
-    mock_post_media = MagicMock()
-    mock_post_media.exists.return_value = True
-    mock_device.find.return_value = mock_post_media
+    visible_resource = getattr(ResourceID, resource_name)
+
+    def mock_find(**kwargs):
+        element = MagicMock()
+        pattern = kwargs.get("resourceIdMatches", "")
+        element.exists.return_value = bool(pattern and re.fullmatch(pattern, visible_resource))
+        return element
+
+    mock_device.find.side_effect = mock_find
 
     opened_view = OpenedPostView(mock_device)
     result = opened_view.is_post_opened()
@@ -913,8 +943,11 @@ def test_opened_post_view_is_post_opened_includes_reels_and_clips():
     # Verify find was called with resourceIdMatches checking clips containers
     call_kwargs = mock_device.find.call_args[1]
     pattern = call_kwargs["resourceIdMatches"]
-    for expected_sub in ["zoomable_view_container", "clips_video_container", "root_clips_layout", "clips_viewer_container"]:
+    for expected_sub in ["zoomable_view_container", "row_feed_photo_imageview", "clips_video_container", "root_clips_layout", "clips_viewer_container"]:
         assert expected_sub in pattern.lower()
+
+    visible_resource = ResourceID.PROFILE_TABS_CONTAINER
+    assert opened_view.is_post_opened() is False
 
 
 def test_nav_to_hashtag_or_place_tap_and_open_verification(monkeypatch):

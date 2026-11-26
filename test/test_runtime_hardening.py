@@ -1,4 +1,5 @@
 import os
+import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import pytest
@@ -140,7 +141,7 @@ def test_tab_bar_modern_resource_ids():
 
     # First query should check FEED_TAB
     assert any(q.get("resourceIdMatches") == views.ResourceID.FEED_TAB for q in searched_queries)
-    assert mock_button.click.called
+    mock_button.click.assert_called_once()
 
 
 def test_data_analytics_report_path_format(tmp_path):
@@ -529,16 +530,19 @@ def test_opened_post_view_peek_preview_detection():
     from InstaAddict.core.views import OpenedPostView
 
     mock_device = MagicMock()
+    mock_device._ig_is_opened.return_value = True
     mock_like_btn = MagicMock()
     mock_like_btn.exists.return_value = True
+    mock_like_btn.get_bounds.return_value = {"left": 100, "top": 600, "right": 300, "bottom": 640}
     mock_context_opt = MagicMock()
     mock_context_opt.exists.return_value = True
+    mock_context_opt.get_bounds.return_value = {"left": 100, "top": 680, "right": 300, "bottom": 720}
 
     def mock_find(**kwargs):
         text_re = kwargs.get("textMatches", "")
-        if "Like" in text_re:
+        if kwargs.get("className") == views.ClassName.TEXT_VIEW and re.fullmatch(text_re, "Like"):
             return mock_like_btn
-        if "Comment" in text_re or "Repost" in text_re:
+        if kwargs.get("className") == views.ClassName.TEXT_VIEW and re.fullmatch(text_re, "Repost"):
             return mock_context_opt
         elem = MagicMock()
         elem.exists.return_value = False
@@ -547,6 +551,11 @@ def test_opened_post_view_peek_preview_detection():
     mock_device.find.side_effect = mock_find
     post_view = OpenedPostView(mock_device)
     assert post_view.is_peek_preview_opened() is True
+
+    # A context option alone is not a Peek menu.
+    mock_like_btn.exists.return_value = False
+    assert post_view.is_peek_preview_opened() is False
+    mock_like_btn.exists.return_value = True
 
     # When context options missing, is_peek_preview_opened returns False
     mock_context_opt.exists.return_value = False
@@ -574,61 +583,70 @@ def test_opened_post_view_like_in_peek():
     from InstaAddict.core.views import OpenedPostView
 
     mock_device = MagicMock()
+    mock_device._ig_is_opened.return_value = True
     mock_like_btn = MagicMock()
     mock_like_btn.exists.return_value = True
+    mock_like_btn.get_bounds.return_value = {"left": 100, "top": 600, "right": 300, "bottom": 640}
+    mock_context_opt = MagicMock()
+    mock_context_opt.exists.return_value = True
+    mock_context_opt.get_bounds.return_value = {"left": 100, "top": 680, "right": 300, "bottom": 720}
 
     def mock_find(**kwargs):
         text_re = kwargs.get("textMatches", "")
-        if "Unlike" in text_re:
-            unlike_mock = MagicMock()
-            unlike_mock.exists.return_value = False
-            return unlike_mock
-        if "Like" in text_re:
+        if text_re and re.fullmatch(text_re, "Like"):
             return mock_like_btn
+        if text_re and re.fullmatch(text_re, "Report"):
+            return mock_context_opt
         elem = MagicMock()
         elem.exists.return_value = False
         return elem
 
     mock_device.find.side_effect = mock_find
-    with patch("InstaAddict.core.views.UniversalActions.detect_block"), \
+    with patch("InstaAddict.core.views.UniversalActions.detect_block") as mock_detect_block, \
          patch("InstaAddict.core.views.random_sleep"):
         post_view = OpenedPostView(mock_device)
         res = post_view.like_in_peek()
 
     assert res is True
     mock_like_btn.click.assert_called_once()
+    mock_detect_block.assert_called_once_with(mock_device)
+    mock_device.back.assert_not_called()
 
 
-def test_opened_post_view_dismiss_peek():
-    """Verify dismiss_peek calls back and checks if peek closed."""
+@pytest.mark.parametrize("peek_states, expected_backs", [([False], 0), ([True, False], 1)])
+def test_opened_post_view_dismiss_peek(peek_states, expected_backs):
+    """Only send Back for a confirmed Peek, then verify it closed."""
     from InstaAddict.core.views import OpenedPostView
 
     mock_device = MagicMock()
 
     with patch("InstaAddict.core.views.random_sleep"), \
-         patch.object(OpenedPostView, "is_peek_preview_opened", return_value=False):
+         patch.object(OpenedPostView, "is_peek_preview_opened", side_effect=peek_states) as mock_peek:
         post_view = OpenedPostView(mock_device)
         res = post_view.dismiss_peek()
 
     assert res is True
+    assert mock_peek.call_count == len(peek_states)
+    assert mock_device.back.call_count == expected_backs
+    mock_device.deviceV2.click.assert_not_called()
+    mock_device.get_info.assert_not_called()
+
+
+def test_opened_post_view_dismiss_peek_stops_after_one_back():
+    """A persistent overlay fails without another Back or an outside tap."""
+    from InstaAddict.core.views import OpenedPostView
+
+    mock_device = MagicMock()
+    with patch("InstaAddict.core.views.random_sleep"), \
+         patch.object(OpenedPostView, "is_peek_preview_opened", side_effect=[True, True]) as mock_peek:
+        post_view = OpenedPostView(mock_device)
+        res = post_view.dismiss_peek()
+
+    assert res is False
     mock_device.back.assert_called_once()
-
-
-def test_opened_post_view_dismiss_peek_fallback_click():
-    """Verify dismiss_peek falls back to outside click if back fails."""
-    from InstaAddict.core.views import OpenedPostView
-
-    mock_device = MagicMock()
-    mock_device.get_info.return_value = {"displayWidth": 1080, "displayHeight": 2400}
-    # is_peek_preview_opened returns True during back loops, then False after click
-    with patch("InstaAddict.core.views.random_sleep"), \
-         patch.object(OpenedPostView, "is_peek_preview_opened", side_effect=[True, True, False]):
-        post_view = OpenedPostView(mock_device)
-        res = post_view.dismiss_peek()
-
-    assert res is True
-    assert mock_device.back.call_count == 2
-    mock_device.deviceV2.click.assert_called_once_with(540, 120)
+    assert mock_peek.call_count == 2
+    mock_device.deviceV2.click.assert_not_called()
+    mock_device.get_info.assert_not_called()
 
 
 def test_posts_grid_view_navigate_to_post_peek_detection():
@@ -639,18 +657,9 @@ def test_posts_grid_view_navigate_to_post_peek_detection():
     grid_view = PostsGridView(mock_device)
 
     mock_post_list = MagicMock()
-    mock_row = MagicMock()
-    mock_post = MagicMock()
-
-    mock_post_list.exists.return_value = True
-    mock_row.exists.return_value = True
-    mock_post.exists.return_value = True
-    mock_post.ui_info.return_value = {"contentDescription": "Photo"}
-    mock_post.get_bounds.return_value = {"left": 100, "top": 200, "right": 300, "bottom": 400}
-
-    mock_post_list.child.return_value = mock_row
-    mock_row.child.return_value = mock_post
     grid_view._get_post_view = MagicMock(return_value=mock_post_list)
+    bounds = {"left": 100, "top": 200, "right": 300, "bottom": 400}
+    grid_view._get_visible_post_rows = MagicMock(return_value=[{0: (bounds, "Photo")}])
 
     with patch("InstaAddict.core.views.OpenedPostView.is_post_opened", return_value=False), \
          patch("InstaAddict.core.views.OpenedPostView.is_peek_preview_opened", return_value=True), \
@@ -659,6 +668,9 @@ def test_posts_grid_view_navigate_to_post_peek_detection():
 
     assert opened_view is not None
     assert getattr(opened_view, "is_peek", False) is True
+    assert (media_type, obj_count) == (views.MediaType.PHOTO, 1)
+    grid_view._get_visible_post_rows.assert_called_once_with()
+    mock_post_list.child.assert_not_called()
     mock_device.deviceV2.click.assert_called_once_with(200, 300)
 
 
@@ -670,18 +682,9 @@ def test_posts_grid_view_navigate_to_post_peek_detected_even_when_not_still_on_p
     grid_view = PostsGridView(mock_device)
 
     mock_post_list = MagicMock()
-    mock_row = MagicMock()
-    mock_post = MagicMock()
-
-    mock_post_list.exists.return_value = True
-    mock_row.exists.return_value = True
-    mock_post.exists.return_value = True
-    mock_post.ui_info.return_value = {"contentDescription": "Photo"}
-    mock_post.get_bounds.return_value = {"left": 100, "top": 200, "right": 300, "bottom": 400}
-
-    mock_post_list.child.return_value = mock_row
-    mock_row.child.return_value = mock_post
     grid_view._get_post_view = MagicMock(return_value=mock_post_list)
+    bounds = {"left": 100, "top": 200, "right": 300, "bottom": 400}
+    grid_view._get_visible_post_rows = MagicMock(return_value=[{0: (bounds, "Photo")}])
 
     # In real Instagram, the peek modal dims the profile so _is_still_on_profile() returns False!
     with patch("InstaAddict.core.views.OpenedPostView.is_post_opened", return_value=False), \
@@ -691,6 +694,10 @@ def test_posts_grid_view_navigate_to_post_peek_detected_even_when_not_still_on_p
 
     assert opened_view is not None
     assert getattr(opened_view, "is_peek", False) is True
+    assert (media_type, obj_count) == (views.MediaType.PHOTO, 1)
+    grid_view._get_visible_post_rows.assert_called_once_with()
+    mock_post_list.child.assert_not_called()
+    mock_device.deviceV2.click.assert_called_once_with(200, 300)
 
 
 def test_universal_actions_dismiss_peek_if_open():
@@ -752,6 +759,7 @@ def test_interact_with_user_peek_preview_liking():
     mock_opened_post.is_peek = True
     mock_opened_post.is_peek_already_liked.return_value = False
     mock_opened_post.like_in_peek.return_value = True
+    mock_opened_post.dismiss_peek.return_value = True
 
     with patch("InstaAddict.core.interaction.ProfileView") as MockProfileView, \
          patch("InstaAddict.core.interaction.PostsGridView") as MockPostsGridView, \
@@ -765,6 +773,7 @@ def test_interact_with_user_peek_preview_liking():
 
         mock_grid = MagicMock()
         mock_grid.navigateToPost.return_value = (mock_opened_post, None, None)
+        mock_grid.return_to_profile.return_value = True
         MockPostsGridView.return_value = mock_grid
 
         res = interact_with_user(
@@ -789,6 +798,8 @@ def test_interact_with_user_peek_preview_liking():
     assert res[5] == 1     # number_of_liked
     mock_opened_post.like_in_peek.assert_called_once()
     mock_opened_post.dismiss_peek.assert_called_once()
+    mock_grid.return_to_profile.assert_called_once_with()
+    mock_device.back.assert_not_called()
     mock_reg_like.assert_called_once()
 
 
@@ -814,6 +825,7 @@ def test_interact_with_user_peek_dynamic_recovery():
     mock_opened_post.is_peek_preview_opened.return_value = True
     mock_opened_post.is_peek_already_liked.return_value = False
     mock_opened_post.like_in_peek.return_value = True
+    mock_opened_post.dismiss_peek.return_value = True
 
     with patch("InstaAddict.core.interaction.ProfileView") as MockProfileView, \
          patch("InstaAddict.core.interaction.PostsGridView") as MockPostsGridView, \
@@ -827,6 +839,7 @@ def test_interact_with_user_peek_dynamic_recovery():
 
         mock_grid = MagicMock()
         mock_grid.navigateToPost.return_value = (mock_opened_post, None, None)
+        mock_grid.return_to_profile.return_value = True
         MockPostsGridView.return_value = mock_grid
 
         res = interact_with_user(
@@ -851,6 +864,8 @@ def test_interact_with_user_peek_dynamic_recovery():
     assert res[5] == 1
     mock_opened_post.like_in_peek.assert_called_once()
     mock_opened_post.dismiss_peek.assert_called_once()
+    mock_grid.return_to_profile.assert_called_once_with()
+    mock_device.back.assert_not_called()
     mock_reg_like.assert_called_once()
 
 
@@ -885,7 +900,7 @@ def test_interact_with_user_consecutive_failure_circuit_breaker():
 
         mock_grid = MagicMock()
         mock_grid.navigateToPost.return_value = (None, None, None)
-        mock_grid._is_still_on_profile.return_value = True
+        mock_grid.return_to_profile.return_value = True
         MockPostsGridView.return_value = mock_grid
 
         res = interact_with_user(
@@ -907,6 +922,8 @@ def test_interact_with_user_consecutive_failure_circuit_breaker():
         )
 
     assert mock_grid.navigateToPost.call_count == 2
+    assert mock_grid.return_to_profile.call_count == 2
+    mock_device.back.assert_not_called()
     assert res[5] == 0  # 0 liked
 
 
