@@ -17,6 +17,8 @@ Saved sessions expose `video_watch_windows` and `video_watch_seconds` separately
 from story watches, likes and comments. These measure completed viewing waits;
 they are not Instagram-confirmed views or evidence that playback continued throughout.
 No extra discovery job or unlimited scrolling is enabled.
+An explicit failed-like confirmation stops the daily worker for review rather than
+allowing it to continue following more profiles with no confirmed likes.
 
 ## Private setup
 

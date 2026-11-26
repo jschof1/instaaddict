@@ -147,6 +147,8 @@ class DailyGrowthTests(unittest.TestCase):
         for line in ["A serius block detected", "Watchdog Tier 1 recovery", "Watchdog Tier 2 recovery", "Traceback (most recent call last)", "challenge_required", "App has crashed / has been closed!", "Can't go back to the profile; ending interaction.", "Could not return from Peek Preview; ending interaction.", "Profile grid unavailable after failed post open; ending interaction."]:
             self.assertIsNotNone(daily.STOP.search(line))
         self.assertIsNone(daily.STOP.search("Block detection is enabled"))
+        self.assertIsNotNone(daily.STOP.search("Fail to like post. Let's continue..."))
+        self.assertIsNotNone(daily.STOP.search("Fail to like post via Peek Preview."))
 
     def test_atomic_private_journal_survives_replacement(self):
         with tempfile.TemporaryDirectory() as directory:

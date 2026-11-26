@@ -1369,6 +1369,7 @@
     - added-explicit-hash-and-source-bound-not-sent-review-with-locks-and-rollback-backup
     - preserved-permanent-consumption-and-original-day-charges-for-reviewed-intents
     - increased-reviewed-batch-video-windows-to-15-30-seconds-with-separate-elapsed-window-accounting
+    - stopped-future-batches-on-explicit-failed-like-confirmation
     - passed-71-focused-tests-and-80-subtests-through-resource-guard
     - verified-account-identity-from-todays-native-receipt-and-stopped-supported-ui-after-failed-recovery
     - verified-owned-orphan-emulator-cleanup-without-unsupported-ui-fallback

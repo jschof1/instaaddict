@@ -31,6 +31,7 @@ STOP = re.compile(
     r"we restrict certain activity|confirm you.re human|account has been compromised|"
     r"watchdog.*tier[\s-]*[123]|Traceback \(most recent call last\)|"
     r"App has crashed / has been closed|"
+    r"Fail to like post\b|"
     r"Profile grid unavailable after failed post open|"
     r"Could not return from Peek Preview|Can't go back to the profile|"
     r"Multiple consecutive post open failures|Can't find the post element|Crash saved as", re.I
