@@ -189,6 +189,20 @@ Use `botRecordedActions`, the matching finished saved session, and its log to
 report actual actions. A loaded schedule, an old completed journal, a skipped day,
 and a successful read-only launch probe are not a new completed Instagram run.
 
+Opened-post and video hearts can expose `content-desc="Liked"` while
+`selected=false`. Their state checks use the exact heart labels `Like`, `Liked`
+and `Unlike`. A missing control or unfamiliar label is unknown: it cannot confirm
+a like, authorize an initial toggle or authorize a fallback heart click. Offline
+regression checks establish this selector contract; they do not establish the
+outcome of earlier failed attempts or validate a live engagement run.
+
+A captured failure before comment typing may explain the helper fault, but there
+is no non-consuming pre-submit ledger state. Keep its `uncertain` intent, original
+day charge and permanent shortcode/text consumption intact. The existing helper
+blocks on uncertainty across days, and the worker independently blocks on its
+safety fault. Record reviewed evidence separately; a compatibility patch alone
+does not release either hold or authorize another run.
+
 Pause stops an active bot and its owned emulator. Resume removes only a manual
 pause; it cannot clear `fault.json`. Investigate the saved log, reconcile any
 uncertain actions and repair the cause before manually archiving a safety fault.

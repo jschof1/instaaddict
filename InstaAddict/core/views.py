@@ -2635,6 +2635,25 @@ class OpenedPostView:
             return like_btn
         return None
 
+    @staticmethod
+    def _opened_like_state(button) -> Optional[bool]:
+        """Read the heart itself; IG can expose Liked with selected=false.
+
+        Missing or unfamiliar labels are unknown, so they must not authorize a
+        toggle, a fallback click or a confirmed action. Do not use get_selected:
+        the facade also returns True when a selected-state target disappears.
+        """
+        if button is None or not button.exists():
+            return None
+        description = button.get_desc()
+        if not button.exists():
+            return None
+        if description in ("Liked", "Unlike"):
+            return True
+        if description == "Like":
+            return False
+        return None
+
     def _is_post_liked(self) -> Tuple[Optional[bool], Optional[DeviceFacade.View]]:
         """
         Check if post is liked
@@ -2642,10 +2661,10 @@ class OpenedPostView:
         :rtype: bool
         """
         like_btn_view = self._get_post_like_button()
-        if not like_btn_view:
-            return False, None
+        if like_btn_view is None:
+            return None, None
 
-        return like_btn_view.get_selected(), like_btn_view
+        return self._opened_like_state(like_btn_view), like_btn_view
 
     def like_post(self) -> bool:
         """
@@ -2653,6 +2672,9 @@ class OpenedPostView:
         :return: post has been liked
         :rtype: bool
         """
+        initial_state, _ = self._is_post_liked()
+        if initial_state is not False:
+            return initial_state is True
         post_media_view = self.device.find(
             resourceIdMatches=case_insensitive_re(ResourceID.MEDIA_CONTAINER)
         )
@@ -2667,7 +2689,7 @@ class OpenedPostView:
                 logger.info("Liking post via the little heart ❤️.")
                 like_button.click()
                 UniversalActions.detect_block(self.device)
-                liked = like_button.get_selected()
+                liked = self._opened_like_state(like_button)
             else:
                 logger.error("Can't find the media container nor the like button!")
         elif post_media_view.exists():
@@ -2685,11 +2707,11 @@ class OpenedPostView:
             else:
                 post_media_view.double_click()
                 liked, like_button = self._is_post_liked()
-                if not liked and like_button is not None:
+                if liked is False and like_button is not None:
                     logger.info("Double click failed, clicking on the little heart ❤️.")
                     like_button.click()
                     liked, _ = self._is_post_liked()
-        return liked
+        return liked is True
 
     def start_video(self) -> bool:
         """
@@ -2794,8 +2816,8 @@ class OpenedPostView:
             resourceIdMatches=case_insensitive_re(ResourceID.LIKE_BUTTON)
         )
         if like_button.exists():
-            return like_button.get_selected(), like_button
-        return False, None
+            return self._opened_like_state(like_button), like_button
+        return None, None
 
     def _has_tags(self) -> bool:
         tags_icon = self.device.find(
@@ -2810,6 +2832,9 @@ class OpenedPostView:
         :return: video has been liked
         :rtype: bool
         """
+        initial_state, _ = self._is_video_liked()
+        if initial_state is not False:
+            return initial_state is True
         sidebar = self.device.find(
             resourceIdMatches=case_insensitive_re(ResourceID.UFI_STACK)
         )
@@ -2823,7 +2848,7 @@ class OpenedPostView:
                 logger.debug("Showing sidebar...")
                 obj.click()
             liked, like_button = self._is_video_liked()
-            if not liked:
+            if liked is False:
                 logger.info("Double click failed, clicking on the little heart ❤️.")
                 if like_button is not None:
                     like_button.click()
@@ -2831,7 +2856,7 @@ class OpenedPostView:
                 else:
                     logger.error("We are seeing another video.")
                 liked, _ = self._is_video_liked()
-        return liked
+        return liked is True
 
     def _getListViewLikers(self):
         for _ in range(2):

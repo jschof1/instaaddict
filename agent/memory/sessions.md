@@ -1283,3 +1283,19 @@
   deferred:
     - existing-uncertain-intent-and-safety-fault-remain-held-without-retry
   key_fact: "An unfamiliar empty composer prompt can cause a safe pre-submit stop. Add only an observed exact placeholder, retain unknown-draft rejection, and preserve consumed intents and fault evidence independently of the code repair."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  tasks: []
+  done:
+    - completed-bounded-read-only-fault-and-action-evidence-review
+    - reproduced-observed-liked-label-with-false-selected-flag-offline
+    - repaired-opened-post-and-video-heart-state-checks-to-fail-closed-on-unknown
+    - passed-71-focused-tests-and-74-subtests-through-light-resource-guard
+    - documented-pre-submit-consumption-and-preserved-both-independent-safety-holds
+    - verified-enabled-daily-schedules-and-unchanged-private-action-budgets-and-supplies
+  deferred:
+    - per-attempt-like-outcomes-remain-unproved-without-contemporaneous-receipts
+    - safety-fault-and-consumed-uncertain-comment-intent-remain-held-for-recurring-review
+  key_fact: "Instagram can expose Liked with selected=false. Exact accessibility-label regression checks repair this state reader without proving historical actions, authorizing engagement validation or releasing an uncertain intent. Keep private receipts outside Git."
