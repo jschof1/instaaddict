@@ -1389,3 +1389,15 @@
   deferred:
     - scheduled-live-engagement-and-weekend-reliability-verification
   key_fact: "Validate the comment surface and recheck queue eligibility before creating a durable attempt. Persist the reservation before typing and preserve every unconfirmed reserved attempt for review."
+
+- date: 2026-11-26
+  executor: Codex
+  tasks: []
+  done:
+    - used-two-rounds-of-council-review-to-select-the-audience-and-follower-pilot
+    - verified-the-dotted-account-and-two-reel-releases-with-postiz
+    - documented-the-quote-follow-up-reel-and-comparable-follower-measurement
+  deferred:
+    - record-the-next-exact-profile-read-and-check-native-insights-access
+    - film-and-review-the-first-new-reel-in-the-existing-publishing-workflow
+  key_fact: "The 223-follower baseline comes from the exact account's scheduled worker profile read. An outgoing action and a channel-level enquiry cannot establish account growth or attribution. Reel-level follows need their own native evidence."

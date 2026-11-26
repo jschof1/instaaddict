@@ -20,6 +20,8 @@ The UKTL website's T3 project also has an **Instagram growth status** shortcut.
   An old completed run does not prove today's run completed.
 - The daily maintenance task belongs to this T3 project. It verifies actual results
   and owns prospect replenishment and preparation of contextual comments.
+- The [Instagram growth brief](uk-trade-leads-instagram-growth.md) gives the audience,
+  first content to prepare and follower evidence to collect at the daily review.
 
 Use the existing logged-in account and the reviewed UK business queue. Keep DMs,
 publishing and unfollows disabled. Do not start another worker or replay a started
