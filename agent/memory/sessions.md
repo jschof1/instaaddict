@@ -1237,3 +1237,20 @@
     - fresh-comment-source-verification-pending-reliable-supported-app-snapshots
     - intended-day-results-review-owned-by-existing-daily-maintenance
   key_fact: "A successful supported Android boot does not prove reliable app access or post evidence. Repeated snapshot failures after documented recovery and an app not-responding dialog require stopping UI work, preserving drafts and expiry, retaining diagnostics, and checking the owned device actually exits."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: t3/maintain-uktradeleads-daily
+  tasks: []
+  done:
+    - reconciled-new-finished-main-job-with-faulted-comment-phase
+    - preserved-uncertain-consumed-intent-fault-and-conservative-action-reservations
+    - pushed-exact-observed-composer-prompt-fix-with-focused-regression-checks
+    - validated-unused-source-verified-profile-supply
+    - prepared-two-fresh-post-specific-comments-with-supported-device-receipts
+    - verified-device-shutdown-actual-processes-and-free-worker-locks
+    - retained-daily-maintenance-and-one-bounded-fault-review-checkpoint
+  deferred:
+    - uncertain-comment-intent-and-safety-fault-remain-held
+    - failed-like-confirmation-cause-needs-further-source-evidence
+  key_fact: "A clean completed main job and a failed comment phase are separate results. A compatibility fix does not clear an uncertain intent, prove any like or comment, authorize a replay, or establish follower growth or enquiries."
