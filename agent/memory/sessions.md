@@ -1221,3 +1221,19 @@
   deferred:
     - fresh-comment-source-verification-pending-supported-device-boot-recovery
   key_fact: "Light resource admission can recover while supported Android tooling still fails before UI access. Preserve existing draft expiries and record fresh source verification as unavailable; a boot attempt is not post evidence."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: t3/maintain-uktradeleads-daily
+  tasks: []
+  done:
+    - completed-single-bounded-read-only-pre-worker-checkpoint
+    - verified-light-admission-external-routes-processes-locks-and-schedules
+    - revalidated-private-supplies-and-preserved-original-draft-expiries
+    - captured-supported-device-app-and-snapshot-helper-diagnostics
+    - verified-owned-device-shutdown-and-no-operating-file-changes
+    - updated-both-private-status-records-with-next-recurring-review-owner
+  deferred:
+    - fresh-comment-source-verification-pending-reliable-supported-app-snapshots
+    - intended-day-results-review-owned-by-existing-daily-maintenance
+  key_fact: "A successful supported Android boot does not prove reliable app access or post evidence. Repeated snapshot failures after documented recovery and an app not-responding dialog require stopping UI work, preserving drafts and expiry, retaining diagnostics, and checking the owned device actually exits."
