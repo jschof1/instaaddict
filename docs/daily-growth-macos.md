@@ -92,10 +92,12 @@ comment is already counted in a bot session. Import earlier manual comments as
 {"version":1,"intents":[{"id":"manual-20261019-1","handle":"example.roofing","postUrl":"https://www.instagram.com/p/CODE/","captionSnippet":"Exact excerpt from this post","text":"Exact full comment already posted.","sourceUrl":"https://www.instagram.com/example.roofing/","expiresAt":"2026-10-26T17:00:00+00:00","day":"2026-10-19","reservedAt":"2026-10-19T12:00:00+01:00","state":"posted"}]}
 ```
 
-The durable states are `reserved` → `posted` or `alreadyPosted`. Every other
-outcome after reservation becomes `uncertain` and requires fault review. The
-reservation is atomically replaced and both the file and directory are fsynced
-before UI work. Power loss can leave `reserved`; recovery changes it to
+The helper validates the account, post and composer before reserving an attempt.
+A failure during those checks leaves the ledger untouched and records the exact
+reason in the worker journal. After validation it checks that the draft is still
+eligible, then saves `reserved` with an atomic replacement and syncs both the
+file and directory before typing. The terminal states for that attempt are
+`posted` or `alreadyPosted`. Power loss can leave `reserved`; recovery changes it to
 `uncertain`. Every state charges the reservation's UK day. Historical bot
 `total_comments` also charge that day; `receiptSessionId` avoids counting the
 same confirmed receipt twice. Unknown/manual actions outside these records must
@@ -103,8 +105,8 @@ be reconciled into the ledger. Never reset the ledger to regain budget.
 
 An attempted post shortcode OR normalized full comment text is permanently
 consumed across days. An uncertain intent is never retried. A safety fault or
-unresolved reservation blocks further actions until reviewed. Even a known
-pre-submit failure conservatively consumes its intent.
+unresolved reservation blocks further actions until reviewed. Any failure after
+the durable reservation still consumes its intent and requires review.
 
 For the observed empty-composer failure, `scripts/review_comment_not_sent.py`
 provides an explicit operator-only reconciliation. It requires exact original
@@ -216,22 +218,16 @@ a like, authorize an initial toggle or authorize a fallback heart click. Offline
 regression checks establish this selector contract; they do not establish the
 outcome of earlier failed attempts or validate a live engagement run.
 
-A captured failure before comment typing may explain the helper fault, but there
-is no non-consuming pre-submit ledger state. Keep its `uncertain` intent, original
-day charge and permanent shortcode/text consumption intact. The existing helper
-blocks on uncertainty across days, and the worker independently blocks on its
-safety fault. Record reviewed evidence separately; a compatibility patch alone
-does not release either hold or authorize another run.
+Older runs reserved before validating the composer. When an older reservation
+has evidence of a pre-typing failure, use the explicit review described above.
+Unresolved intent states and the separate worker fault each require review.
 
 Pause stops an active bot and its owned emulator. Resume removes only a manual
 pause; it cannot clear `fault.json`. Investigate the saved log, reconcile any
 uncertain actions and repair the cause before manually archiving a safety fault.
-An unfinished journal after a power loss also requires review. Do not delete
-journals or reset session counters to force another same-day run. During setup,
-a developer may make a deliberate validation run after repairing a fault: preserve
-the previous journal under an attempt filename in `days`, archive the fault with
-the repair evidence, and reconcile all confirmed actions before another run.
-The scheduler never performs this recovery. Recorded `Followed @...` transitions
+An unfinished journal after a power loss also requires review. Keep the original
+journal and action accounting. A repaired worker can resume on a future UK day
+after the fault is reviewed. Recorded `Followed @...` transitions
 are charged even if interruption preceded the bot's per-profile counter update.
 
 ## Daily operation and maintenance

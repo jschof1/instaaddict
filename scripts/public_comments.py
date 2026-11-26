@@ -290,7 +290,11 @@ class CommentUI:
         self.d(**selector).click()
 
     def receipt(self, root, entry):
-        return any(n.get("content-desc") == self.account + " said " + entry["text"] for n in root.iter("node"))
+        description = self.account + " said " + entry["text"]
+        matched = sum(n.get("content-desc") == description for n in root.iter("node"))
+        if matched > 1:
+            raise RuntimeError("Ambiguous matching comment receipt")
+        return matched == 1
 
     def open_post(self, entry):
         self.guard()
@@ -340,10 +344,8 @@ class CommentUI:
             raise RuntimeError("Existing draft or unknown composer hint")
         return root, path
 
-    def submit(self, entry):
-        root, path = self.open_and_validate(entry)
-        if self.receipt(root, entry):
-            return "alreadyPosted", path
+    def submit_validated(self, entry):
+        """Type and submit only after validation and a durable reservation."""
         composer = self.d(resourceId=RID + "layout_comment_thread_edittext_multiline")
         self.guard()
         composer.set_text(entry["text"])
@@ -399,16 +401,25 @@ def run_comments(growth, account, day, device_factory=connect_device):
         ui = CommentUI(device_factory(), growth, account, guard)
         for entry in pending[:status["remaining"]]:
             guard()
-            current, eligible, _ = plan(growth, day)
+            root, evidence = ui.open_and_validate(entry)
+            already_posted = ui.receipt(root, entry)
+            # Validation can take time. Recheck expiry, the queue and pause before writing intent.
+            current, eligible, ledger = plan(growth, day)
+            guard()
+            if current["reviewRequired"]:
+                raise RuntimeError("Uncertain comment intent requires review; never retry")
             if not current["enabled"] or not current["remaining"]:
                 break
             if entry not in eligible:
                 continue
-            intent = dict(entry, day=day, reservedAt=now().isoformat(), state="reserved")
+            reserved_at = now()
+            if reserved_at.date().isoformat() != day:
+                raise RuntimeError("Comment phase reached the next UK day")
+            intent = dict(entry, day=day, reservedAt=reserved_at.isoformat(), state="reserved")
             ledger["intents"].append(intent)
+            write_json(growth / "comment-ledger.json", ledger)
             try:
-                write_json(growth / "comment-ledger.json", ledger)
-                state, evidence = ui.submit(entry)
+                state, evidence = ("alreadyPosted", evidence) if already_posted else ui.submit_validated(entry)
                 intent.update(state=state, finishedAt=now().isoformat(), evidence=evidence)
                 write_json(growth / "comment-ledger.json", ledger)
             except BaseException:
@@ -435,7 +446,9 @@ def main():
         print(json.dumps(run_comments(growth, args.account, args.day)))
         return 0
     except BaseException as exc:
-        write_json(growth / "fault.json", {"at": now().isoformat(), "reason": str(exc), "reviewRequired": True})
+        write_json(growth / "fault.json", {"at": now().isoformat(), "day": args.day,
+                   "source": "public_comments", "reason": str(exc) or type(exc).__name__,
+                   "reviewRequired": True})
         print("Comments stopped for review:", exc)
         return 1
 

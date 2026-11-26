@@ -1377,3 +1377,15 @@
     - first-future-live-run-must-prove-repaired-likes-comments-and-video-window-records
     - supported-device-control-still-needs-fresh-recovery-check-before-next-worker
   key_fact: "A provable pre-typing failure can be explicitly reviewed as not sent without refunding its charge or retrying its consumed post/text. A separate safety fault requires cause reconciliation and a recorded operator decision; source tests and viewing windows do not prove Instagram action or playback outcomes."
+
+- date: 2026-11-26
+  executor: Codex
+  tasks: []
+  done:
+    - moved-read-only-comment-validation-before-durable-attempt-reservation
+    - retained-reservation-before-typing-and-uncertainty-after-interruption
+    - rejected-ambiguous-comment-receipts-and-retained-specific-worker-faults
+    - independently-reviewed-diff-and-passed-guarded-focused-checks
+  deferred:
+    - scheduled-live-engagement-and-weekend-reliability-verification
+  key_fact: "Validate the comment surface and recheck queue eligibility before creating a durable attempt. Persist the reservation before typing and preserve every unconfirmed reserved attempt for review."

@@ -279,7 +279,12 @@ def run_comment_phase(repo, account, growth, day, env, vm, started, log):
                 break
             time.sleep(1)
         if helper.returncode != 0:
-            raise RuntimeError("Comment helper exited unsuccessfully")
+            fault = read_json(growth / "fault.json", {})
+            if isinstance(fault, dict) and fault.get("source") == "public_comments" and fault.get("day") == day:
+                reason = fault.get("reason")
+                if isinstance(reason, str) and reason:
+                    raise RuntimeError("Comment helper stopped: " + reason)
+            raise RuntimeError("Comment helper exited unsuccessfully (exit " + str(helper.returncode) + ")")
     finally:
         stop_process(helper)
         public_comments.recover_reservations(growth)
@@ -294,8 +299,11 @@ def run_session(repo, account, growth):
     day = datetime.now(UK).date().isoformat()
     journal_path = growth / "days" / (day + ".json")
     state_path = growth / "state.json"
-    if (growth / "paused.json").exists() or (growth / "fault.json").exists():
+    if (growth / "paused.json").exists():
         print("Paused. Read status before resuming.")
+        return 0
+    if (growth / "fault.json").exists():
+        print("Safety fault held. Read status for the reason before reviewing it.")
         return 0
     journals = [read_json(p) for p in sorted((growth / "days").glob("*.json"))]
     if any(j.get("status") == "running" for j in journals):

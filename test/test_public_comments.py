@@ -84,6 +84,8 @@ class FakeDevice:
                     node(desc="someone.else said " + text)
                 else:
                     node("comment-row", desc=author + " said " + text)
+                    if self.receipt_kind == "duplicate":
+                        node("comment-row", desc=author + " said " + text)
             if self.reply:
                 node(text="Replying to someone")
         if self.restriction:
@@ -115,6 +117,8 @@ class FakeDevice:
                 return device.draft or device.hint
 
             def set_text(self, text):
+                ledger = comments.load_ledger(device.growth)
+                assert ledger["intents"][-1]["state"] == "reserved", "typed before durable reservation"
                 device.typed += 1
                 device.draft = text
 
@@ -304,6 +308,46 @@ class PublicCommentsTests(unittest.TestCase):
         self.assertEqual((status["dailyCharged"], device.clicks, device.typed), (1, 0, 0))
         self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "alreadyPosted")
 
+    def test_duplicate_visible_receipt_aborts_before_reserving_or_typing(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()], receipt="duplicate")
+        device.posted.add(entry()["id"])
+        with self.assertRaisesRegex(RuntimeError, "Ambiguous matching comment receipt"):
+            self.run_helper(device)
+        self.assertEqual((device.clicks, device.typed), (0, 0))
+        self.assertEqual(comments.load_ledger(self.growth)["intents"], [])
+
+    def test_identical_receipts_after_click_keep_attempt_uncertain(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()], receipt="duplicate")
+        with self.assertRaisesRegex(RuntimeError, "Ambiguous matching comment receipt"):
+            self.run_helper(device)
+        self.assertEqual((device.clicks, device.typed), (1, 1))
+        self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "uncertain")
+
+    def test_queue_removal_during_validation_prevents_reservation(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()])
+        validate = comments.CommentUI.open_and_validate
+
+        def remove_after_validation(ui, item):
+            result = validate(ui, item)
+            comments.write_json(self.growth / "comment-queue.json", {"comments": []})
+            return result
+
+        with patch.object(comments.CommentUI, "open_and_validate", remove_after_validation):
+            self.run_helper(device)
+        self.assertEqual((device.clicks, device.typed), (0, 0))
+        self.assertEqual(comments.load_ledger(self.growth)["intents"], [])
+
+    def test_failed_reservation_write_never_types_or_invents_uncertainty(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()])
+        with patch.object(comments, "write_json", side_effect=OSError("Cannot reserve")), self.assertRaisesRegex(OSError, "Cannot reserve"):
+            self.run_helper(device)
+        self.assertEqual((device.clicks, device.typed), (0, 0))
+        self.assertEqual(comments.load_ledger(self.growth)["intents"], [])
+
     def test_send_interruption_never_clicks_again_on_restart(self):
         for failure in (RuntimeError("lost response"), KeyboardInterrupt()):
             with self.subTest(failure=type(failure).__name__):
@@ -336,7 +380,7 @@ class PublicCommentsTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     self.run_helper(device)
                 self.assertEqual((device.clicks, device.typed), (0, 0))
-                self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "uncertain")
+                self.assertEqual(comments.load_ledger(self.growth)["intents"], [])
 
 
 if __name__ == "__main__":

@@ -267,7 +267,8 @@ class DailyGrowthTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "new matching"):
                 daily.saved_bot_job(account, growth, config, "2026-10-19")
 
-    def exercise_comment_worker(self, directory, *, comment_only=False, job_completed=True, reservation_fails=False):
+    def exercise_comment_worker(self, directory, *, comment_only=False, job_completed=True,
+                                reservation_fails=False, comment_error=None):
         repo, original, growth = self.lifecycle_fixture(directory)
         account = original.with_name("uk.tradeleads")
         original.rename(account)
@@ -295,7 +296,7 @@ class DailyGrowthTests(unittest.TestCase):
             stack.enter_context(patch.object(daily, "stop_process"))
             caffeinate, emulator, bot, helper = MagicMock(), MagicMock(), MagicMock(), MagicMock()
             emulator.poll.return_value = None
-            helper.poll.return_value, helper.returncode = 0, 0
+            helper.poll.return_value = helper.returncode = 1 if comment_error else 0
             bot.stdout, bot.wait.return_value, bot.returncode = iter([]), 0, 0
 
             def adb_call(command, **kwargs):
@@ -327,6 +328,11 @@ class DailyGrowthTests(unittest.TestCase):
                 self.assertEqual(kwargs["env"]["ADB_USB"], "0")
                 journal = daily.read_json(next((growth / "days").glob("*.json")))
                 self.assertEqual(journal.get("sessionIds", []), [] if comment_only else ["new-job"])
+                if comment_error:
+                    daily.write_json(growth / "fault.json", {
+                        "source": "public_comments", "day": datetime.now(daily.UK).date().isoformat(),
+                        "reason": comment_error, "reviewRequired": True,
+                    })
                 return helper
 
             stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=spawn))
@@ -379,6 +385,15 @@ class DailyGrowthTests(unittest.TestCase):
             result, state, commands = self.exercise_comment_worker(directory, job_completed=False)
             self.assertEqual((result, state["status"]), (1, "fault"))
             self.assertEqual(len(commands), 3)  # invalid saved job cannot start helper
+
+    def test_comment_failure_reason_survives_in_final_journal_with_saved_main_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            reason = "Existing draft or unknown composer hint"
+            result, state, commands = self.exercise_comment_worker(directory, comment_error=reason)
+            self.assertEqual((result, state["status"], state["sessionIds"]), (1, "fault", ["new-job"]))
+            self.assertEqual(state["problem"], "Comment helper stopped: " + reason)
+            self.assertFalse(state["comments"]["reviewRequired"])
+            self.assertEqual(len(commands), 4)
 
     def test_comment_phase_pause_rollover_disk_and_shared_deadline_prevent_launch(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
