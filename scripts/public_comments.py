@@ -307,7 +307,7 @@ class CommentUI:
         composers = self.nodes(root, "layout_comment_thread_edittext_multiline")
         if len(composers) != 1:
             raise RuntimeError("Ambiguous comment composer")
-        hints = {"", "Join the conversation…", "Join the conversation...", "What do you think of this?", "Add a comment for " + entry["handle"]}
+        hints = {"", "Join the conversation…", "Join the conversation...", "Start the conversation…", "What do you think of this?", "Add a comment for " + entry["handle"]}
         visible = [n.get(k, "") for n in root.iter("node") for k in ("text", "content-desc")]
         if any(re.search(r"\breply(?:ing)? (?:to|as)\b", text, re.I) for text in visible):
             raise RuntimeError("Reply context is not permitted")

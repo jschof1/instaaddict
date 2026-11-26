@@ -264,6 +264,22 @@ class PublicCommentsTests(unittest.TestCase):
         comments.CommentUI(device, self.growth).open_and_validate(entry())
         self.assertEqual((device.typed, device.clicks), (0, 0))
 
+    def test_observed_start_conversation_hint_is_accepted_without_typing(self):
+        device = FakeDevice(self.growth, [entry()])
+        device.hint = "Start the conversation…"
+        comments.CommentUI(device, self.growth).open_and_validate(entry())
+        self.assertEqual((device.typed, device.clicks), (0, 0))
+        self.assertEqual(comments.load_ledger(self.growth)["intents"], [])
+
+    def test_unrecognized_composer_text_is_never_treated_as_the_new_hint(self):
+        for value in ("Start the conversation… existing draft", "Another composer prompt"):
+            with self.subTest(value=value):
+                device = FakeDevice(self.growth, [entry()])
+                device.hint = value
+                with self.assertRaisesRegex(RuntimeError, "Existing draft or unknown composer hint"):
+                    comments.CommentUI(device, self.growth).open_and_validate(entry())
+                self.assertEqual((device.typed, device.clicks), (0, 0))
+
     def test_comment_sheet_that_will_not_close_stops_before_typing(self):
         device = FakeDevice(self.growth, [entry()])
         device.screen = "comments"

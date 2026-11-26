@@ -1271,3 +1271,15 @@
   deferred:
     - first-higher-cap-automatic-run-and-daily-result-check-in-the-registered-project
   key_fact: "The separate T3 project is InstaAddict · UK Trade Leads, rooted at ~/GitHub/instaaddict. It is a UKTL acquisition channel; project connections do not constitute an automatic Instagram-to-CRM integration."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: fix/profile-follow-status-and-block-detection
+  tasks: []
+  done:
+    - reconciled-comment-helper-stop-with-captured-empty-composer-prompt
+    - accepted-exact-start-conversation-placeholder-without-widening-draft-validation
+    - verified-comment-and-daily-budget-replay-tests
+  deferred:
+    - existing-uncertain-intent-and-safety-fault-remain-held-without-retry
+  key_fact: "An unfamiliar empty composer prompt can cause a safe pre-submit stop. Add only an observed exact placeholder, retain unknown-draft rejection, and preserve consumed intents and fault evidence independently of the code repair."
