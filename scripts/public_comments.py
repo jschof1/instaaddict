@@ -25,7 +25,7 @@ APP = "com.instagram.android"
 RID = APP + ":id/"
 HANDLE = re.compile(r"[a-z0-9_](?:[a-z0-9_.]{0,28}[a-z0-9_])?\Z")
 POST = re.compile(r"/(?:(?P<handle>[a-z0-9_.]+)/)?p/(?P<code>[A-Za-z0-9_-]{1,64})/\Z")
-STATES = {"reserved", "uncertain", "posted", "alreadyPosted"}
+STATES = {"reserved", "uncertain", "posted", "alreadyPosted", "reviewedNotSent"}
 FIELDS = {"id", "handle", "postUrl", "captionSnippet", "text", "sourceUrl", "expiresAt"}
 RESTRICTED = re.compile(
     r"action blocked|try again later|we restrict|challenge|captcha|confirm you.re human|"
@@ -117,6 +117,11 @@ def load_ledger(growth, required=False):
     if not path.exists() and not required:
         return {"version": 1, "intents": []}
     ledger = read_json(path) if path.exists() else None
+    return validate_ledger(ledger)
+
+
+def validate_ledger(ledger):
+    """Validate a candidate in memory before replacing durable account state."""
     if not isinstance(ledger, dict) or type(ledger.get("version")) is not int or ledger["version"] != 1 or not isinstance(ledger.get("intents"), list):
         raise ValueError("Invalid or missing comment ledger")
     ids = set()
@@ -136,6 +141,25 @@ def load_ledger(growth, required=False):
                 raise ValueError("Invalid receipt metadata")
         if "receiptSessionId" in intent and intent["state"] not in {"posted", "alreadyPosted"}:
             raise ValueError("Only confirmed receipts may refer to bot sessions")
+        review = intent.get("notSentReview")
+        if intent["state"] == "reviewedNotSent":
+            if any(k in intent for k in ("evidence", "receiptSessionId", "commentUrl")):
+                raise ValueError("A not-sent review is not a posted receipt")
+            if not isinstance(review, dict) or not intent.get("finishedAt"):
+                raise ValueError("Reviewed not-sent intent requires operator evidence")
+            for key in ("reviewer", "reason", "xml", "log"):
+                if not isinstance(review.get(key), str) or not review[key].strip():
+                    raise ValueError("Incomplete not-sent review")
+            for key in ("xmlSha256", "logSha256", "sourceSha256", "priorIntentSha256"):
+                if not isinstance(review.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", review[key]):
+                    raise ValueError("Missing not-sent evidence hash")
+            if (not isinstance(review.get("sourceRef"), str)
+                    or not re.fullmatch(r"[0-9a-f]{40}", review["sourceRef"])
+                    or review.get("failureStage") != "before_typing"
+                    or aware(review.get("reviewedAt")) != aware(intent["finishedAt"])):
+                raise ValueError("Invalid not-sent review provenance")
+        elif review is not None:
+            raise ValueError("Not-sent review requires its terminal state")
     return ledger
 
 

@@ -11,6 +11,13 @@ publishing remain disabled. A separate optional helper can post at most two
 prepared public comments as `uk.tradeleads` per UK day. These limits bound the session; they do not guarantee account safety
 or follower growth. Instagram restrictions stop the worker for review.
 
+Relevant videos encountered in the reviewed profile batch use 15–30 second viewing
+windows, bounded by the existing session deadline and any remaining video time.
+Saved sessions expose `video_watch_windows` and `video_watch_seconds` separately
+from story watches, likes and comments. These measure completed viewing waits;
+they are not Instagram-confirmed views or evidence that playback continued throughout.
+No extra discovery job or unlimited scrolling is enabled.
+
 ## Private setup
 
 Create `settings.json` containing:
@@ -96,6 +103,17 @@ An attempted post shortcode OR normalized full comment text is permanently
 consumed across days. An uncertain intent is never retried. A safety fault or
 unresolved reservation blocks further actions until reviewed. Even a known
 pre-submit failure conservatively consumes its intent.
+
+For the observed empty-composer failure, `scripts/review_comment_not_sent.py`
+provides an explicit operator-only reconciliation. It requires exact original
+source, log and composer XML hashes; rechecks owner, caption, timing, absence of
+typing/receipt phases and the pre-typing failure path; and takes both worker and
+comment locks. Use `--help` for required evidence arguments and `--dry-run` first.
+Only a proved pre-typing `uncertain` intent can become `reviewedNotSent`, with a
+separate `notSentReview` record. Its original charge and permanent post/text/id
+consumption remain. This does not count a comment or archive the safety fault.
+Post-submit or unproved outcomes stay uncertain and held. Older code fails closed
+on the new state, so deploy the checked revision before applying reconciliation.
 
 For each intent the helper verifies the logged-in account, exact post owner and
 caption excerpt, empty known composer and absence of reply context or restrictions.

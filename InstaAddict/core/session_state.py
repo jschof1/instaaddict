@@ -25,6 +25,8 @@ class SessionState:
     totalComments = 0
     totalPm = 0
     totalWatched = 0
+    totalVideoWatchWindows = 0
+    totalVideoWatchSeconds = 0.0
     totalUnfollowed = 0
     removedMassFollowers = []
     totalScraped = 0
@@ -77,6 +79,8 @@ class SessionState:
         self.totalComments = 0
         self.totalPm = 0
         self.totalWatched = 0
+        self.totalVideoWatchWindows = 0
+        self.totalVideoWatchSeconds = 0.0
         self.totalUnfollowed = 0
         self.removedMassFollowers = []
         self.totalScraped = {}
@@ -528,6 +532,8 @@ class SessionStateEncoder(JSONEncoder):
             "total_comments": session_state.totalComments,
             "total_pm": session_state.totalPm,
             "total_watched": session_state.totalWatched,
+            "video_watch_windows": getattr(session_state, "totalVideoWatchWindows", 0),
+            "video_watch_seconds": round(getattr(session_state, "totalVideoWatchSeconds", 0.0), 2),
             "total_unfollowed": session_state.totalUnfollowed,
             "total_scraped": session_state.totalScraped,
             "total_crashes": getattr(session_state, "totalCrashes", 0),

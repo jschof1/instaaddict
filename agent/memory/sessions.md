@@ -1359,3 +1359,20 @@
     - uncertain-comment-intent-and-safety-fault-remain-held
     - failed-like-confirmation-cause-needs-further-source-evidence
   key_fact: "A clean completed main job and a failed comment phase are separate results. A compatibility fix does not clear an uncertain intent, prove any like or comment, authorize a replay, or establish follower growth or enquiries."
+
+- date: 2026-11-26
+  executor: Codex
+  branch: t3/maintain-uktradeleads-daily
+  tasks: []
+  done:
+    - independently-reviewed-proved-pre-typing-comment-stop-and-reconciliation-design
+    - added-explicit-hash-and-source-bound-not-sent-review-with-locks-and-rollback-backup
+    - preserved-permanent-consumption-and-original-day-charges-for-reviewed-intents
+    - increased-reviewed-batch-video-windows-to-15-30-seconds-with-separate-elapsed-window-accounting
+    - passed-71-focused-tests-and-80-subtests-through-resource-guard
+    - verified-account-identity-from-todays-native-receipt-and-stopped-supported-ui-after-failed-recovery
+    - verified-owned-orphan-emulator-cleanup-without-unsupported-ui-fallback
+  deferred:
+    - first-future-live-run-must-prove-repaired-likes-comments-and-video-window-records
+    - supported-device-control-still-needs-fresh-recovery-check-before-next-worker
+  key_fact: "A provable pre-typing failure can be explicitly reviewed as not sent without refunding its charge or retrying its consumed post/text. A separate safety fault requires cause reconciliation and a recorded operator decision; source tests and viewing windows do not prove Instagram action or playback outcomes."

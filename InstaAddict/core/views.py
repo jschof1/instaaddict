@@ -5,7 +5,7 @@ import platform
 import xml.etree.ElementTree as ET
 from enum import Enum, auto
 from random import randint, uniform
-from time import sleep
+from time import sleep, monotonic
 from typing import Optional, Tuple
 
 import emoji
@@ -2785,7 +2785,17 @@ class OpenedPostView:
         else:
             return None
         if watching_time > 0:
+            started = monotonic()
             sleep(watching_time)
+            if media_type in (MediaType.IGTV, MediaType.REEL, MediaType.VIDEO):
+                # Completed viewing windows, not Instagram-confirmed view receipts.
+                from InstaAddict.core.session_state import SessionState
+                elapsed = max(0.0, monotonic() - started)
+                session = SessionState.get_active()
+                if session is not None:
+                    session.totalVideoWatchWindows += 1
+                    session.totalVideoWatchSeconds += elapsed
+                logger.info(f"Video viewing window completed: {elapsed:.1f}s (playback not independently confirmed).")
 
     def _get_video_time_left(self) -> int:
         timer = self.device.find(resourceId=ResourceID.TIMER)

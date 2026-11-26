@@ -141,6 +141,7 @@ class DailyGrowthTests(unittest.TestCase):
                          {"follows": 2, "likes": 20})
         config = daily.bot_config("owner", [f"target{i}" for i in range(10)], 10, 20)
         self.assertEqual((config["likes-count"], config["total-follows-limit"], config["total-likes-limit"]), (2, 10, 20))
+        self.assertEqual(config["watch-video-time"], "15-30")
 
     def test_restriction_and_hang_lines_stop_run(self):
         for line in ["A serius block detected", "Watchdog Tier 1 recovery", "Watchdog Tier 2 recovery", "Traceback (most recent call last)", "challenge_required", "App has crashed / has been closed!", "Can't go back to the profile; ending interaction.", "Could not return from Peek Preview; ending interaction.", "Profile grid unavailable after failed post open; ending interaction."]:

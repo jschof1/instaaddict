@@ -181,7 +181,7 @@ def bot_config(username, targets, follows, likes):
         "total-unfollows-limit": 0, "total-comments-limit": 0, "total-pm-limit": 0,
         "total-watches-limit": 0, "end-if-likes-limit-reached": True,
         "end-if-follows-limit-reached": True, "can-reinteract-after": 168,
-        "watch-video-time": "3-5", "watch-photo-time": "2-3", "no-harvest-hashtags": True,
+        "watch-video-time": "15-30", "watch-photo-time": "2-3", "no-harvest-hashtags": True,
     }
 
 

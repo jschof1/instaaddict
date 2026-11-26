@@ -25,6 +25,13 @@ def entry(number=1, **changes):
 
 def intent(number=1, state="posted", day=DAY, **changes):
     result = dict(entry(number), day=day, reservedAt=day + "T10:00:00+01:00", state=state)
+    if state == "reviewedNotSent":
+        stamp = day + "T12:00:00+01:00"
+        result.update(finishedAt=stamp, notSentReview={
+            "reviewer": "Test operator", "reason": "Proved pre-typing stop", "reviewedAt": stamp,
+            "failureStage": "before_typing", "xml": "snapshot.xml", "log": "run.log",
+            "xmlSha256": "a"*64, "logSha256": "b"*64, "sourceSha256": "c"*64,
+            "priorIntentSha256": "d"*64, "sourceRef": "e"*40})
     result.update(changes)
     return result
 
