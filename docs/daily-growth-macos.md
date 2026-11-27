@@ -225,7 +225,11 @@ launch.
 When all startup attempts fail, Instagram never opened and nothing was reserved.
 The journal records `faultScope: "startup"`, `blocksFutureDays: false` and the
 untouched profiles under `releasedUntouchedTargets`. No `fault.json` is written,
-so the next day runs normally and those profiles stay in the queue. Any fault
+so the next day runs normally and those profiles stay in the queue. The
+scheduler also fires at 15:00; that launch does anything only when the day's
+first journal is such a startup-only fault, and then runs once as
+`days/YYYY-MM-DD-catchup.json` within the same daily caps. A day that
+reserved, launched or observed any Instagram action is never launched again. Any fault
 after Android is ready still writes `fault.json` and holds later days for review.
 Between 24 October and 19 November 2026, a held pause stopped 27 scheduled runs,
 and earlier startup faults each held the following days too.

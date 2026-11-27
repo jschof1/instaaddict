@@ -261,6 +261,14 @@ def saved_bot_job(account, growth, config_path, day):
     return relevant
 
 
+def startup_only_fault(journal):
+    """True only when Instagram never opened: nothing reserved, launched or observed."""
+    return (isinstance(journal, dict) and journal.get("status") == "fault"
+            and journal.get("faultScope") == "startup" and journal.get("blocksFutureDays") is False
+            and journal.get("reservedLikeBudget") == 0 and not journal.get("sessionIds")
+            and not journal.get("observedFollowHandles") and not journal.get("targets"))
+
+
 class StartupFailure(RuntimeError):
     """Android never became ready, so no Instagram action or reservation happened."""
 
@@ -331,8 +339,13 @@ def run_session(repo, account, growth):
     if any(j.get("status") == "running" for j in journals):
         raise ValueError("An unfinished daily run requires review")
     if journal_path.exists():
-        print("Today's session already started; no automatic retry.")
-        return 0
+        # One catch-up launch is allowed only after a startup-only fault.
+        catchup_path = growth / "days" / (day + "-catchup.json")
+        if catchup_path.exists() or not startup_only_fault(read_json(journal_path)):
+            print("Today's session already started; no automatic retry.")
+            return 0
+        print("Earlier launch never opened Instagram; starting the catch-up run.")
+        journal_path = catchup_path
     settings = read_json(growth / "settings.json")
     limits = configured_limits(settings)
     totals = accounting_totals(read_json(account / "sessions.json", []), day, journals)

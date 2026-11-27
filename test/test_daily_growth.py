@@ -231,9 +231,18 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertEqual(state["reservedLikeBudget"], 0)
             self.assertEqual((state["targets"], state["releasedUntouchedTargets"]), ([], ["prospect"]))
             self.assertFalse((growth / "fault.json").exists())
-            # The started day is still never replayed, but its untouched profile stays available.
+            # The untouched profile stays available, and one catch-up launch is allowed.
+            catchup = [MagicMock() for _ in range(daily.BOOT_ATTEMPTS)]
+            for emulator in catchup:
+                emulator.poll.return_value = 1
+            spawn.side_effect = [MagicMock(), *catchup]
+            self.assertEqual(daily.run_session(repo, account, growth), 1)
+            day = datetime.now(daily.UK).date().isoformat()
+            self.assertEqual(daily.read_json(growth / "days" / (day + "-catchup.json"))["releasedUntouchedTargets"], ["prospect"])
+            self.assertEqual(daily.read_json(growth / "days" / (day + ".json"))["faultScope"], "startup")
+            # After the catch-up, the day is never launched again.
             self.assertEqual(daily.run_session(repo, account, growth), 0)
-            self.assertEqual(spawn.call_count, 1 + daily.BOOT_ATTEMPTS)
+            self.assertEqual(spawn.call_count, 2 * (1 + daily.BOOT_ATTEMPTS))
             journals = [daily.read_json(p) for p in (growth / "days").glob("*.json")]
             self.assertEqual(daily.select_targets(daily.read_json(growth / "queue.json"), {}, journals, "owner", 5), ["prospect"])
 
@@ -293,6 +302,14 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertNotIn("faultScope", state)
             self.assertEqual(state["targets"], ["prospect"])
             self.assertTrue((growth / "fault.json").exists())
+
+    def test_catchup_is_refused_after_any_instagram_work(self):
+        base = {"status": "fault", "faultScope": "startup", "blocksFutureDays": False, "reservedLikeBudget": 0, "sessionIds": [], "targets": []}
+        self.assertTrue(daily.startup_only_fault(base))
+        for change in ({"reservedLikeBudget": 4}, {"sessionIds": ["s"]}, {"observedFollowHandles": ["a"]},
+                       {"targets": ["a"]}, {"status": "completed"}, {"faultScope": None}, {"blocksFutureDays": True}):
+            with self.subTest(change=change):
+                self.assertFalse(daily.startup_only_fault(dict(base, **change)))
 
     def test_manual_pause_during_boot_stops_owned_vm_without_safety_fault(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
