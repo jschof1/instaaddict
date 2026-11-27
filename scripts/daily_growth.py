@@ -38,7 +38,7 @@ STOP = re.compile(
     r"Fail to like post\b|"
     r"Profile grid unavailable after failed post open|"
     r"Could not return from Peek Preview|Can't go back to the profile|"
-    r"Multiple consecutive post open failures|Can't find the post element|Crash saved as", re.I
+    r"Multiple consecutive post open failures|Crash saved as", re.I
 )
 GIB = 1024 ** 3
 BOOT_ATTEMPTS = 3

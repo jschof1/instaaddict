@@ -51,6 +51,8 @@ from InstaAddict.core.views import (
 
 logger = logging.getLogger(__name__)
 
+LIKE_STATE_READS = 4
+
 # Module-level globals initialized to prevent NameError prior to load_config
 args = None
 configs = None
@@ -372,10 +374,16 @@ def interact_with_user(
                 continue
             if media_type in (None, MediaType.UNKNOWN):
                 media_type = opened_post_view.detect_opened_media_type()
-            if media_type in (MediaType.REEL, MediaType.IGTV, MediaType.VIDEO):
-                already_liked, _ = opened_post_view._is_video_liked()
-            else:
-                already_liked, _ = opened_post_view._is_post_liked()
+            # A Reel can take a few seconds to draw its like control; re-read before giving up.
+            for state_read in range(LIKE_STATE_READS):
+                if state_read:
+                    random_sleep(1.5, 2.5, modulable=False)
+                if media_type in (MediaType.REEL, MediaType.IGTV, MediaType.VIDEO):
+                    already_liked, _ = opened_post_view._is_video_liked()
+                else:
+                    already_liked, _ = opened_post_view._is_post_liked()
+                if already_liked is not None:
+                    break
             if already_liked:
                 logger.info("Post already liked!")
             elif opened_post_view and already_liked is not None:
@@ -405,8 +413,8 @@ def interact_with_user(
                 else:
                     logger.warning("Fail to like post. Let's continue...")
             else:
-                logger.warning("Can't find the post element!")
-                save_crash(device)
+                # Nothing was tapped, so skipping this post is safe; the run continues.
+                logger.warning("Like state unreadable; skipped this post without acting.")
 
             if opened_post_view and already_liked is not None:
                 if comment_percentage != 0 and can_comment(

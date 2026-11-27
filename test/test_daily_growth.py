@@ -148,6 +148,8 @@ class DailyGrowthTests(unittest.TestCase):
         for line in ["A serius block detected", "Watchdog Tier 1 recovery", "Watchdog Tier 2 recovery", "Traceback (most recent call last)", "challenge_required", "App has crashed / has been closed!", "Can't go back to the profile; ending interaction.", "Could not return from Peek Preview; ending interaction.", "Profile grid unavailable after failed post open; ending interaction."]:
             self.assertIsNotNone(daily.STOP.search(line))
         self.assertIsNone(daily.STOP.search("Block detection is enabled"))
+        # A post skipped before any tap is not a reason to end the day.
+        self.assertIsNone(daily.STOP.search("Like state unreadable; skipped this post without acting."))
         self.assertIsNotNone(daily.STOP.search("Fail to like post. Let's continue..."))
         self.assertIsNotNone(daily.STOP.search("Fail to like post via Peek Preview."))
 
