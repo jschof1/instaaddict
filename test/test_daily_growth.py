@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from contextlib import ExitStack
 import importlib.util
 from pathlib import Path
+from subprocess import CalledProcessError
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -175,6 +176,7 @@ class DailyGrowthTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             repo, account, growth = self.lifecycle_fixture(directory)
             stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace()}))
+            stack.enter_context(patch.object(daily, "emulator_ports_in_use", return_value=False))
             stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
             adb = stack.enter_context(patch.object(daily.subprocess, "run", side_effect=[SimpleNamespace(stdout=""), SimpleNamespace(stdout="emulator-5554\tdevice\n")]))
             spawn = stack.enter_context(patch.object(daily.subprocess, "Popen"))
@@ -183,6 +185,19 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertEqual(adb.call_count, 2)
             self.assertEqual(list((growth / "days").glob("*.json")), [])
             self.assertFalse((growth / "fault.json").exists())
+
+    def test_occupied_emulator_port_skips_without_touching_adb(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            repo, account, growth = self.lifecycle_fixture(directory)
+            stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace()}))
+            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            sock = stack.enter_context(patch.object(daily.socket, "socket"))
+            sock.return_value.__enter__.return_value.connect_ex.side_effect = [61, 0]
+            adb = stack.enter_context(patch.object(daily.subprocess, "run"))
+            self.assertEqual(daily.run_session(repo, account, growth), 0)
+            adb.assert_not_called()
+            self.assertEqual(daily.read_json(growth / "state.json")["status"], "emulator_busy_skipped")
+            self.assertEqual(list((growth / "days").glob("*.json")), [])
 
     def test_owned_emulator_boot_failure_cleans_up_and_blocks_future_runs(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -198,13 +213,36 @@ class DailyGrowthTests(unittest.TestCase):
             spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[caffeinate, emulator]))
             stop = stack.enter_context(patch.object(daily, "stop_process"))
             self.assertEqual(daily.run_session(repo, account, growth), 1)
-            self.assertTrue(any(call.args[0][-2:] == ["emu", "kill"] for call in adb.call_args_list))
+            self.assertFalse(any(call.args[0][-2:] == ["emu", "kill"] for call in adb.call_args_list))
             stop.assert_any_call(caffeinate)
             self.assertEqual(daily.read_json(growth / "state.json")["status"], "fault")
             self.assertEqual(daily.read_json(growth / "state.json")["reservedLikeBudget"], 0)
             self.assertTrue((growth / "fault.json").exists())
             self.assertEqual(daily.run_session(repo, account, growth), 0)
             self.assertEqual(spawn.call_count, 2)  # no bot or retry after failed boot
+
+    def test_missing_server_keys_faults_before_action_reservations(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            repo, account, growth = self.lifecycle_fixture(directory)
+            filters = {"skip_if_private": True, "skip_following": True, "skip_follower": True, "follow_private_or_empty": False}
+            stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace(safe_load=lambda _: filters)}))
+            stack.enter_context(patch.object(daily, "emulator_ports_in_use", return_value=False))
+            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            unauthorised = CalledProcessError(1, "adb", stderr="adb: device unauthorized.\nThis adb server's $ADB_VENDOR_KEYS is not set")
+            empty = SimpleNamespace(stdout="")
+            stack.enter_context(patch.object(daily.subprocess, "run", side_effect=[empty, empty, unauthorised, empty]))
+            stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
+            stack.enter_context(patch.object(daily, "preflight"))
+            caffeinate, emulator = MagicMock(), MagicMock()
+            emulator.poll.return_value = None
+            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[caffeinate, emulator]))
+            self.assertEqual(daily.run_session(repo, account, growth), 1)
+            state = daily.read_json(growth / "state.json")
+            self.assertIn("ADB authentication failed", state["problem"])
+            self.assertEqual(state["reservedLikeBudget"], 0)
+            self.assertEqual(state["sessionIds"], [])
+            self.assertEqual(spawn.call_count, 2)
+            emulator.wait.assert_called_once_with(timeout=20)
 
     def test_manual_pause_during_boot_stops_owned_vm_without_safety_fault(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -216,7 +254,7 @@ class DailyGrowthTests(unittest.TestCase):
             stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
             stack.enter_context(patch.object(daily, "preflight"))
             caffeinate, emulator = MagicMock(), MagicMock()
-            emulator.poll.return_value = 0
+            emulator.poll.side_effect = [None, 0]
 
             def spawn(command, **kwargs):
                 if command[0] == "/usr/bin/caffeinate":

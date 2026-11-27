@@ -176,7 +176,23 @@ reloading it must not start an extra batch.
 
 `~/Library/Android/sdk` links to `~/.android-sdk-build`. The copied device only trusts the
 mini's adb key, so `ADB_VENDOR_KEYS=~/.android/instaaddict-adbkey` must be set for the
-launcher, the worker and any adb server that talks to it.
+launcher, the worker and the adb server that talks to it. On the MacBook, set
+`ANDROID_HOME` and `ANDROID_SDK_ROOT` to the same absolute `~/Library/Android/sdk`
+path, and set `ANDROID_ADB_SERVER_PORT=5038` in the daily LaunchAgent. The worker,
+launcher, bot and comment helper inherit this loopback-only endpoint. Reserve it for this worker,
+and do not set a conflicting `ADB_SERVER_SOCKET`. The normal port 5037 is shared
+with other Android tools. A daemon there can already be running without the dedicated
+key, and running `adb start-server` with a new key does not reconfigure that daemon.
+The worker checks emulator ports 5554 and 5555 before starting ADB, so a device
+opened by another tool is still treated as occupied.
+
+If Android boots but the host reports `device unauthorized` and missing vendor
+keys, investigate the selected ADB server before changing boot timeouts. Verify
+the dedicated endpoint, the server's key configuration, and transport to the
+owned emulator using Android's boot-completed property. This check does not open
+Instagram or run a daily batch. Preserve the intended-day journal and review the
+fault for future dates only.
+
 The SDK's `system-images` directory now lives on the mounted `/Volumes/LLM` volume;
 verify that route before relying on the schedule. Never create an empty replacement
 directory when the external volume is absent.

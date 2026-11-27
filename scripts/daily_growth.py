@@ -14,6 +14,7 @@ import queue
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -77,6 +78,16 @@ def write_json(path, value):
 
 def now():
     return datetime.now(UK).isoformat()
+
+
+def emulator_ports_in_use():
+    """Check the console and transport even if another ADB server owns the device."""
+    for port in (5554, 5555):
+        with socket.socket() as listener:
+            listener.settimeout(0.2)
+            if listener.connect_ex(("127.0.0.1", port)) == 0:
+                return True
+    return False
 
 
 def daily_totals(sessions, day):
@@ -340,8 +351,11 @@ def run_session(repo, account, growth):
     adb = str(sdk / "platform-tools/adb")
     def adb_call(*args, timeout=10):
         return subprocess.run([adb, *args], env=env, capture_output=True, text=True, timeout=timeout, check=True).stdout
-    adb_call("start-server", timeout=20)
-    if "emulator-5554" in adb_call("devices"):
+    emulator_busy = emulator_ports_in_use()
+    if not emulator_busy:
+        adb_call("start-server", timeout=20)
+        emulator_busy = "emulator-5554" in adb_call("devices")
+    if emulator_busy:
         write_json(state_path, {"status": "emulator_busy_skipped", "checkedAt": now()})
         print("Skipped: emulator is already in use.")
         return 0
@@ -393,6 +407,10 @@ def run_session(repo, account, growth):
                 try:
                     if adb_call("-s", "emulator-5554", "shell", "getprop", "sys.boot_completed").strip() == "1":
                         break
+                except subprocess.CalledProcessError as exc:
+                    error = exc.stderr or ""
+                    if "device unauthorized" in error and "$ADB_VENDOR_KEYS is not set" in error:
+                        raise RuntimeError("Emulator ADB authentication failed: the active server has no vendor keys") from None
                 except (subprocess.SubprocessError, OSError):
                     pass
                 time.sleep(3)
@@ -455,7 +473,7 @@ def run_session(repo, account, growth):
         for sig in previous_handlers:
             signal.signal(sig, signal.SIG_IGN)
         stop_process(bot)
-        if vm is not None:
+        if vm is not None and vm.poll() is None:
             try:
                 adb_call("-s", "emulator-5554", "emu", "kill")
             except (subprocess.SubprocessError, OSError):

@@ -1401,3 +1401,16 @@
     - record-the-next-exact-profile-read-and-check-native-insights-access
     - film-and-review-the-first-new-reel-in-the-existing-publishing-workflow
   key_fact: "The 223-follower baseline comes from the exact account's scheduled worker profile read. An outgoing action and a channel-level enquiry cannot establish account growth or attribution. Reel-level follows need their own native evidence."
+
+- date: 2026-11-27
+  executor: Codex
+  tasks: []
+  done:
+    - reconciled-the-scheduled-pre-engagement-adb-authentication-fault
+    - checked-emulator-ports-before-starting-the-worker-adb-server
+    - preserved-early-authentication-fault-detail-and-owned-emulator-cleanup
+    - passed-78-guarded-tests-and-80-subtests
+    - verified-the-dedicated-adb-and-explicit-sdk-route-with-an-authenticated-boot
+  deferred:
+    - scheduled-weekend-instagram-engagement-verification
+  key_fact: "A shared ADB server can ignore a vendor key supplied by a later client. A dedicated loopback port and explicit SDK path passed an authenticated host-GPU boot check before any Instagram action."
