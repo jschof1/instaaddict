@@ -36,6 +36,18 @@ def intent(number=1, state="posted", day=DAY, **changes):
     return result
 
 
+class _Callable:
+    """Wraps a FakeDevice so selector calls can be intercepted in one test."""
+    def __init__(self, device, call):
+        self._device, self._call = device, call
+
+    def __call__(self, resourceId, **kwargs):
+        return self._call(resourceId, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._device, name)
+
+
 class FakeDevice:
     def __init__(self, growth, entries, receipt="exact", failure=None):
         self.growth, self.entries, self.receipt_kind, self.failure = growth, entries, receipt, failure
@@ -431,6 +443,34 @@ class PublicCommentsTests(unittest.TestCase):
         self.run_helper(device)
         self.assertGreaterEqual(device.backs, 1)
         self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "posted")
+
+    def test_swallowed_profile_tap_is_retried(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()])
+        selector = device.__call__
+        swallowed = []
+
+        def call(resourceId, **kwargs):
+            chosen = selector(resourceId, **kwargs)
+            if resourceId.endswith("profile_tab") and not swallowed:
+                class Swallow:
+                    def click(self):
+                        swallowed.append(True)
+                return Swallow()
+            return chosen
+
+        device.__call__ = call
+        with patch.object(comments.CommentUI, "wait_for", autospec=True, side_effect=self.fast_wait()):
+            self.run_helper(_Callable(device, call))
+        self.assertEqual(swallowed, [True])
+        self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "posted")
+
+    def fast_wait(self):
+        original = comments.CommentUI.wait_for
+
+        def wait(ui, phase, predicate, seconds=15):
+            return original(ui, phase, predicate, seconds=min(seconds, 1))
+        return wait
 
     def test_caption_below_the_fold_is_found_by_scrolling(self):
         self.seed([entry()])

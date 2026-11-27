@@ -113,6 +113,10 @@ def validate_entry(entry):
     return match["code"], normalize(entry["text"]).casefold()
 
 
+class StepTimeout(RuntimeError):
+    """An expected screen did not appear in time."""
+
+
 class PostMismatch(RuntimeError):
     """The live post no longer matches the prepared draft. Nothing was reserved or typed."""
 
@@ -297,7 +301,7 @@ class CommentUI:
             if predicate(root):
                 return root, path
             if time.monotonic() >= deadline:
-                raise RuntimeError("Timed out verifying " + phase)
+                raise StepTimeout("Timed out verifying " + phase)
             time.sleep(0.5)
 
     def click(self, name, root, description=None):
@@ -369,8 +373,16 @@ class CommentUI:
                 self.d.shell(["monkey", "-p", APP, "-c", "android.intent.category.LAUNCHER", "1"])
                 root, _ = self.snapshot("relaunch")
         root, _ = self.wait_for("profile-tab", lambda r: bool(self.nodes(r, "profile_tab")))
-        self.click("profile_tab", root)
-        root, _ = self.wait_for("account", lambda r: bool(self.nodes(r, "action_bar_title")))
+        # Right after a launch the first tap on Profile can be swallowed; tap again, up to three times.
+        for tap in range(3):
+            self.click("profile_tab", root)
+            try:
+                root, _ = self.wait_for("account", lambda r: bool(self.nodes(r, "action_bar_title")), seconds=8)
+                break
+            except StepTimeout:
+                if tap == 2:
+                    raise
+                root, _ = self.wait_for("profile-tab", lambda r: bool(self.nodes(r, "profile_tab")))
         titles = self.nodes(root, "action_bar_title")
         if len(titles) != 1 or titles[0].get("text") != self.account:
             raise RuntimeError("Logged-in account does not match uk.tradeleads")
