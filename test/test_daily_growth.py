@@ -199,50 +199,100 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertEqual(daily.read_json(growth / "state.json")["status"], "emulator_busy_skipped")
             self.assertEqual(list((growth / "days").glob("*.json")), [])
 
-    def test_owned_emulator_boot_failure_cleans_up_and_blocks_future_runs(self):
+    def startup_stack(self, stack, growth):
+        filters = {"skip_if_private": True, "skip_following": True, "skip_follower": True, "follow_private_or_empty": False}
+        stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace(safe_load=lambda _: filters)}))
+        stack.enter_context(patch.object(daily, "emulator_ports_in_use", return_value=False))
+        stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+        stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
+        stack.enter_context(patch.object(daily, "preflight"))
+        stack.enter_context(patch.object(daily.time, "sleep"))
+        stack.enter_context(patch.object(daily, "BOOT_RETRY_PAUSE", 0))
+
+    def test_owned_emulator_boot_failure_retries_then_releases_day_without_blocking(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             repo, account, growth = self.lifecycle_fixture(directory)
-            filters = {"skip_if_private": True, "skip_following": True, "skip_follower": True, "follow_private_or_empty": False}
-            stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace(safe_load=lambda _: filters)}))
-            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
+            self.startup_stack(stack, growth)
             adb = stack.enter_context(patch.object(daily.subprocess, "run", return_value=SimpleNamespace(stdout="")))
-            stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
-            stack.enter_context(patch.object(daily, "preflight"))
-            caffeinate, emulator = MagicMock(), MagicMock()
-            emulator.poll.return_value = 1
-            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[caffeinate, emulator]))
+            caffeinate = MagicMock()
+            emulators = [MagicMock() for _ in range(daily.BOOT_ATTEMPTS)]
+            for emulator in emulators:
+                emulator.poll.return_value = 1
+            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[caffeinate, *emulators]))
             stop = stack.enter_context(patch.object(daily, "stop_process"))
             self.assertEqual(daily.run_session(repo, account, growth), 1)
             self.assertFalse(any(call.args[0][-2:] == ["emu", "kill"] for call in adb.call_args_list))
             stop.assert_any_call(caffeinate)
-            self.assertEqual(daily.read_json(growth / "state.json")["status"], "fault")
-            self.assertEqual(daily.read_json(growth / "state.json")["reservedLikeBudget"], 0)
-            self.assertTrue((growth / "fault.json").exists())
+            state = daily.read_json(growth / "state.json")
+            self.assertEqual(state["status"], "fault")
+            self.assertIn("after 3 startup attempts", state["problem"])
+            self.assertEqual(len(state["bootAttempts"]), daily.BOOT_ATTEMPTS)
+            self.assertEqual((state["faultScope"], state["blocksFutureDays"]), ("startup", False))
+            self.assertEqual(state["reservedLikeBudget"], 0)
+            self.assertEqual((state["targets"], state["releasedUntouchedTargets"]), ([], ["prospect"]))
+            self.assertFalse((growth / "fault.json").exists())
+            # The started day is still never replayed, but its untouched profile stays available.
             self.assertEqual(daily.run_session(repo, account, growth), 0)
-            self.assertEqual(spawn.call_count, 2)  # no bot or retry after failed boot
+            self.assertEqual(spawn.call_count, 1 + daily.BOOT_ATTEMPTS)
+            journals = [daily.read_json(p) for p in (growth / "days").glob("*.json")]
+            self.assertEqual(daily.select_targets(daily.read_json(growth / "queue.json"), {}, journals, "owner", 5), ["prospect"])
 
-    def test_missing_server_keys_faults_before_action_reservations(self):
+    def test_missing_server_keys_retries_with_a_fresh_dedicated_adb_server(self):
+        unauthorised = CalledProcessError(1, "adb", stderr="adb: device unauthorized.\nThis adb server's $ADB_VENDOR_KEYS is not set")
+
+        def adb(command, **kwargs):
+            if "getprop" in command:
+                raise unauthorised
+            return SimpleNamespace(stdout="")
+
+        for port, restarts in (("5038", daily.BOOT_ATTEMPTS - 1), ("5037", 0)):
+            with self.subTest(port=port), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                repo, account, growth = self.lifecycle_fixture(directory)
+                self.startup_stack(stack, growth)
+                stack.enter_context(patch.dict(daily.os.environ, {"ANDROID_ADB_SERVER_PORT": port}))
+                calls = stack.enter_context(patch.object(daily.subprocess, "run", side_effect=adb))
+                emulators = [MagicMock() for _ in range(daily.BOOT_ATTEMPTS)]
+                for emulator in emulators:
+                    emulator.poll.return_value = None
+                    emulator.wait.side_effect = lambda timeout, e=emulator: setattr(e.poll, "return_value", 0)
+                spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[MagicMock(), *emulators]))
+                self.assertEqual(daily.run_session(repo, account, growth), 1)
+                state = daily.read_json(growth / "state.json")
+                self.assertIn("ADB authentication failed", state["problem"])
+                self.assertEqual((state["reservedLikeBudget"], state["sessionIds"]), (0, []))
+                self.assertEqual(spawn.call_count, 1 + daily.BOOT_ATTEMPTS)
+                for emulator in emulators:
+                    emulator.wait.assert_called_once_with(timeout=20)
+                self.assertEqual(sum(call.args[0][-1:] == ["kill-server"] for call in calls.call_args_list), restarts)
+                self.assertFalse((growth / "fault.json").exists())
+
+    def test_startup_recovery_reaches_bot_and_later_faults_still_hold(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             repo, account, growth = self.lifecycle_fixture(directory)
-            filters = {"skip_if_private": True, "skip_following": True, "skip_follower": True, "follow_private_or_empty": False}
-            stack.enter_context(patch.dict("sys.modules", {"yaml": SimpleNamespace(safe_load=lambda _: filters)}))
-            stack.enter_context(patch.object(daily, "emulator_ports_in_use", return_value=False))
-            stack.enter_context(patch.object(daily.shutil, "disk_usage", return_value=SimpleNamespace(free=10 * daily.GIB)))
-            unauthorised = CalledProcessError(1, "adb", stderr="adb: device unauthorized.\nThis adb server's $ADB_VENDOR_KEYS is not set")
-            empty = SimpleNamespace(stdout="")
-            stack.enter_context(patch.object(daily.subprocess, "run", side_effect=[empty, empty, unauthorised, empty]))
-            stack.enter_context(patch.object(daily.subprocess, "check_output", return_value=""))
-            stack.enter_context(patch.object(daily, "preflight"))
-            caffeinate, emulator = MagicMock(), MagicMock()
-            emulator.poll.return_value = None
-            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[caffeinate, emulator]))
+            self.startup_stack(stack, growth)
+            boots = iter(["", "1"])
+
+            def adb(command, **kwargs):
+                if "getprop" in command:
+                    return SimpleNamespace(stdout=next(boots, "1"))
+                return SimpleNamespace(stdout="")
+
+            stack.enter_context(patch.object(daily.subprocess, "run", side_effect=adb))
+            failed, ready, bot = MagicMock(), MagicMock(), MagicMock()
+            failed.poll.side_effect = [None, 1, 1, 1]
+            ready.poll.return_value = None
+            bot.stdout = iter([])
+            bot.wait.return_value = 0
+            bot.returncode = 0
+            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen", side_effect=[MagicMock(), failed, ready, bot]))
             self.assertEqual(daily.run_session(repo, account, growth), 1)
             state = daily.read_json(growth / "state.json")
-            self.assertIn("ADB authentication failed", state["problem"])
-            self.assertEqual(state["reservedLikeBudget"], 0)
-            self.assertEqual(state["sessionIds"], [])
-            self.assertEqual(spawn.call_count, 2)
-            emulator.wait.assert_called_once_with(timeout=20)
+            self.assertEqual([a["result"] for a in state["bootAttempts"]], ["Emulator exited during boot", "ready"])
+            self.assertEqual(spawn.call_count, 4)
+            self.assertGreater(state["reservedLikeBudget"], 0)
+            self.assertNotIn("faultScope", state)
+            self.assertEqual(state["targets"], ["prospect"])
+            self.assertTrue((growth / "fault.json").exists())
 
     def test_manual_pause_during_boot_stops_owned_vm_without_safety_fault(self):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:

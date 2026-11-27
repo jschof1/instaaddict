@@ -3,6 +3,9 @@
 
 Private settings, queue, journals and logs live in accounts/<username>/growth.
 This runner never retries a started day, clears a fault, or discovers new targets.
+Android startup is retried inside one run, before any Instagram action or
+reservation. A run that never got Android ready does not hold later days or
+consume its target profiles.
 """
 import argparse
 from datetime import datetime
@@ -38,6 +41,10 @@ STOP = re.compile(
     r"Multiple consecutive post open failures|Can't find the post element|Crash saved as", re.I
 )
 GIB = 1024 ** 3
+BOOT_ATTEMPTS = 3
+BOOT_TIMEOUT = 240
+BOOT_RETRY_PAUSE = 20
+SHARED_ADB_PORT = "5037"
 MAX_DAILY_FOLLOWS = 10
 MAX_DAILY_LIKES = 20
 
@@ -254,6 +261,10 @@ def saved_bot_job(account, growth, config_path, day):
     return relevant
 
 
+class StartupFailure(RuntimeError):
+    """Android never became ready, so no Instagram action or reservation happened."""
+
+
 def run_comment_phase(repo, account, growth, day, env, vm, started, log):
     status, pending, _ = public_comments.plan(growth, day)
     if status["reviewRequired"]:
@@ -380,6 +391,19 @@ def run_session(repo, account, growth):
     write_json(state_path, journal)
     vm = bot = caffeinate = None
     problem = None
+    startup_only = False
+
+    def stop_vm(proc):
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            adb_call("-s", "emulator-5554", "emu", "kill")
+        except (subprocess.SubprocessError, OSError):
+            pass
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            stop_process(proc)
     started = time.monotonic()
     log_path = growth / "logs" / (datetime.now(UK).strftime("%Y-%m-%d-%H%M%S") + ".log")
     log_path.parent.mkdir(mode=0o700, exist_ok=True)
@@ -392,28 +416,61 @@ def run_session(repo, account, growth):
         with log_path.open("w", buffering=1) as log:
             os.chmod(log_path, 0o600)
             caffeinate = subprocess.Popen(["/usr/bin/caffeinate", "-is", "-w", str(os.getpid())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-            vm = subprocess.Popen([str(Path.home() / "Applications/InstaAddict/Start Android.command")], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-            while True:
+            def launch():
+                return subprocess.Popen([str(Path.home() / "Applications/InstaAddict/Start Android.command")], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+
+            def check_boot_controls():
                 if (growth / "paused.json").exists():
                     raise RuntimeError("Paused by operator during boot")
                 if datetime.now(UK).date().isoformat() != day:
                     raise RuntimeError("Boot reached the next UK day")
-                if vm.poll() is not None:
-                    raise RuntimeError("Emulator exited during boot")
-                if time.monotonic() - started > 240:
-                    raise RuntimeError("Emulator boot timeout")
                 if shutil.disk_usage(repo).free < 3 * GIB:
                     raise RuntimeError("Disk reserve reached during boot")
+
+            journal["bootAttempts"] = []
+            for attempt in range(1, BOOT_ATTEMPTS + 1):
+                attempt_started = time.monotonic()
+                vm = launch()
                 try:
-                    if adb_call("-s", "emulator-5554", "shell", "getprop", "sys.boot_completed").strip() == "1":
-                        break
-                except subprocess.CalledProcessError as exc:
-                    error = exc.stderr or ""
-                    if "device unauthorized" in error and "$ADB_VENDOR_KEYS is not set" in error:
-                        raise RuntimeError("Emulator ADB authentication failed: the active server has no vendor keys") from None
-                except (subprocess.SubprocessError, OSError):
-                    pass
-                time.sleep(3)
+                    while True:
+                        check_boot_controls()
+                        if vm.poll() is not None:
+                            raise StartupFailure("Emulator exited during boot")
+                        if time.monotonic() - attempt_started > BOOT_TIMEOUT:
+                            raise StartupFailure("Emulator boot timeout")
+                        try:
+                            if adb_call("-s", "emulator-5554", "shell", "getprop", "sys.boot_completed").strip() == "1":
+                                break
+                        except subprocess.CalledProcessError as exc:
+                            error = exc.stderr or ""
+                            if "device unauthorized" in error and "$ADB_VENDOR_KEYS is not set" in error:
+                                raise StartupFailure("Emulator ADB authentication failed: the active server has no vendor keys") from None
+                        except (subprocess.SubprocessError, OSError):
+                            pass
+                        time.sleep(3)
+                except StartupFailure as exc:
+                    journal["bootAttempts"].append({"attempt": attempt, "at": now(), "result": str(exc), "seconds": round(time.monotonic() - attempt_started)})
+                    write_json(journal_path, journal)
+                    log.write("Startup attempt " + str(attempt) + " of " + str(BOOT_ATTEMPTS) + " failed: " + str(exc) + "\n")
+                    stop_vm(vm)
+                    if attempt == BOOT_ATTEMPTS:
+                        raise StartupFailure(str(exc) + " (after " + str(BOOT_ATTEMPTS) + " startup attempts)") from None
+                    # Only a dedicated ADB server is restarted; the shared one belongs to other tools.
+                    if env.get("ANDROID_ADB_SERVER_PORT", SHARED_ADB_PORT) != SHARED_ADB_PORT:
+                        try:
+                            adb_call("kill-server", timeout=20)
+                        except (subprocess.SubprocessError, OSError):
+                            pass
+                    pause_until = time.monotonic() + BOOT_RETRY_PAUSE
+                    while time.monotonic() < pause_until or emulator_ports_in_use():
+                        check_boot_controls()
+                        if time.monotonic() - pause_until > 60:
+                            raise RuntimeError("Emulator ports stayed busy after a failed startup") from None
+                        time.sleep(2)
+                    continue
+                journal["bootAttempts"].append({"attempt": attempt, "at": now(), "result": "ready", "seconds": round(time.monotonic() - attempt_started)})
+                break
+            session_started = time.monotonic()
             if targets:
                 journal["reservedLikeBudget"] = len(targets) * conf["likes-count"]
                 write_json(journal_path, journal)
@@ -451,7 +508,7 @@ def run_session(repo, account, growth):
                         raise RuntimeError("Emulator exited during the bot session")
                     if datetime.now(UK).date().isoformat() != day:
                         raise RuntimeError("Session reached the next UK day")
-                    if time.monotonic() - bot_started > 1200 or time.monotonic() - started > 1440:
+                    if time.monotonic() - bot_started > 1200 or time.monotonic() - session_started > 1440:
                         raise RuntimeError("Session time limit")
                     if shutil.disk_usage(repo).free < 3 * GIB:
                         raise RuntimeError("Disk reserve reached")
@@ -465,23 +522,16 @@ def run_session(repo, account, growth):
                 after = accounting_totals(read_json(account / "sessions.json", []), day, journals + [journal])
                 if any(after[key] > limits[key] for key in limits):
                     raise ValueError("Daily action limit exceeded")
-            journal["comments"] = run_comment_phase(repo, account, growth, day, env, vm, started, log)
+            journal["comments"] = run_comment_phase(repo, account, growth, day, env, vm, session_started, log)
     except BaseException as exc:
         problem = str(exc) or type(exc).__name__
+        startup_only = isinstance(exc, StartupFailure) and bot is None and journal["reservedLikeBudget"] == 0
     finally:
         # Do not let a second interrupt skip cleanup.
         for sig in previous_handlers:
             signal.signal(sig, signal.SIG_IGN)
         stop_process(bot)
-        if vm is not None and vm.poll() is None:
-            try:
-                adb_call("-s", "emulator-5554", "emu", "kill")
-            except (subprocess.SubprocessError, OSError):
-                pass
-            try:
-                vm.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                stop_process(vm)
+        stop_vm(vm)
         stop_process(caffeinate)
         manual_pause = bool(problem and problem.startswith("Paused by operator"))
         journal.update(finishedAt=now(), status="paused" if manual_pause else ("fault" if problem else "completed"), problem=problem, elapsedSeconds=round(time.monotonic() - started), emulatorStopped=vm is not None and vm.poll() is not None, log=str(log_path))
@@ -496,7 +546,7 @@ def run_session(repo, account, growth):
             journal["botRecordedActions"] = {"follows": sum(s["total_followed"] for s in relevant), "likes": sum(s["total_likes"] for s in relevant)}
             if any(after[key] > limits[key] for key in limits):
                 raise ValueError("Daily action limit exceeded")
-            if config_path and not manual_pause:
+            if config_path and not manual_pause and not startup_only:
                 saved_bot_job(account, growth, config_path, day)
             if any(s.get(field, 0) for s in relevant for field in ("total_comments", "total_pm", "total_unfollowed", "total_uploads_success")):
                 raise ValueError("Unexpected messaging, unfollow or publishing action")
@@ -507,9 +557,15 @@ def run_session(repo, account, growth):
         except Exception as exc:
             journal["status"] = "fault"
             journal["problem"] = journal["problem"] or str(exc)
+        if startup_only and journal["status"] == "fault" and not journal["sessionIds"] and not journal.get("observedFollowHandles"):
+            # Instagram never opened: the profiles are untouched and later days stay runnable.
+            journal["faultScope"] = "startup"
+            journal["blocksFutureDays"] = False
+            journal["releasedUntouchedTargets"] = journal["targets"]
+            journal["targets"] = []
         write_json(journal_path, journal)
         write_json(state_path, journal)
-        if journal["status"] == "fault":
+        if journal["status"] == "fault" and journal.get("faultScope") != "startup":
             write_json(growth / "fault.json", {"at": now(), "reason": journal["problem"], "day": day, "reviewRequired": True})
         for sig, handler in previous_handlers.items():
             signal.signal(sig, handler)

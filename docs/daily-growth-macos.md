@@ -210,13 +210,25 @@ The Mac must remain powered and its user logged in. A sleeping Mac runs
 the missed calendar job when it wakes; a powered-off Mac cannot run it. The
 worker prevents sleep only during a session.
 
-Starting Android requires 8 GiB free; a run stops below a 3 GiB reserve. Boot
-has four minutes and the bot twenty minutes. The comment helper has at most
-180 seconds, sharing the overall 24-minute ceiling. Pause, UK day rollover,
+Starting Android requires 8 GiB free; a run stops below a 3 GiB reserve. Each
+boot attempt has four minutes. If Android exits, times out or refuses ADB
+authentication, the worker stops that emulator, restarts the dedicated ADB server
+(never the shared port 5037 server), waits for the emulator ports to free and
+tries again, up to three attempts in the same run. The bot then has twenty
+minutes, and the comment helper at most 180 seconds, sharing a 24-minute ceiling
+that starts once Android is ready. Pause, UK day rollover,
 emulator loss, log size and the disk reserve are monitored during comments too.
 Overlapping workers, another bot, an occupied emulator, duplicate days and
-unreviewed faults prevent new actions. A started day is never retried
-automatically, even when it performed no actions.
+unreviewed faults prevent new actions. A started day is never rerun by a later
+launch.
+
+When all startup attempts fail, Instagram never opened and nothing was reserved.
+The journal records `faultScope: "startup"`, `blocksFutureDays: false` and the
+untouched profiles under `releasedUntouchedTargets`. No `fault.json` is written,
+so the next day runs normally and those profiles stay in the queue. Any fault
+after Android is ready still writes `fault.json` and holds later days for review.
+Between 24 October and 19 November 2026, a held pause stopped 27 scheduled runs,
+and earlier startup faults each held the following days too.
 
 `state.json` and `days/YYYY-MM-DD.json` retain results; `logs` retains diagnostics.
 Bot-recorded likes/follows are outgoing actions, not proof of new followers or
