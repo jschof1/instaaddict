@@ -245,6 +245,13 @@ class DailyGrowthTests(unittest.TestCase):
             # After the catch-up, the day is never launched again.
             self.assertEqual(daily.run_session(repo, account, growth), 0)
             self.assertEqual(spawn.call_count, 2 * (1 + daily.BOOT_ATTEMPTS))
+            # Only an explicit operator request starts another run, in its own journal.
+            extra = [MagicMock() for _ in range(daily.BOOT_ATTEMPTS)]
+            for emulator in extra:
+                emulator.poll.return_value = 1
+            spawn.side_effect = [MagicMock(), *extra]
+            self.assertEqual(daily.run_session(repo, account, growth, additional=True), 1)
+            self.assertTrue((growth / "days" / (day + "-extra2.json")).exists())
             journals = [daily.read_json(p) for p in (growth / "days").glob("*.json")]
             self.assertEqual(daily.select_targets(daily.read_json(growth / "queue.json"), {}, journals, "owner", 5), ["prospect"])
 

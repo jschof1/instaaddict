@@ -324,7 +324,7 @@ def run_comment_phase(repo, account, growth, day, env, vm, started, log):
     return status
 
 
-def run_session(repo, account, growth):
+def run_session(repo, account, growth, additional=False):
     import yaml
     day = datetime.now(UK).date().isoformat()
     journal_path = growth / "days" / (day + ".json")
@@ -338,7 +338,14 @@ def run_session(repo, account, growth):
     journals = [read_json(p) for p in sorted((growth / "days").glob("*.json"))]
     if any(j.get("status") == "running" for j in journals):
         raise ValueError("An unfinished daily run requires review")
-    if journal_path.exists():
+    if journal_path.exists() and additional:
+        # Operator-requested extra run: the day's caps still apply across every journal.
+        number = 2
+        while (growth / "days" / (day + "-extra" + str(number) + ".json")).exists():
+            number += 1
+        journal_path = growth / "days" / (day + "-extra" + str(number) + ".json")
+        print("Operator-requested additional run within today's remaining caps.")
+    elif journal_path.exists():
         # One catch-up launch is allowed only after a startup-only fault.
         catchup_path = growth / "days" / (day + "-catchup.json")
         if catchup_path.exists() or not startup_only_fault(read_json(journal_path)):
@@ -394,7 +401,12 @@ def run_session(repo, account, growth):
     config_path = None
     if targets:
         conf = bot_config(account.name, targets, follows, likes)
-        config_path = growth / (datetime.now(UK).strftime("%Y-%m-%d-%H%M%S") + ".yml")
+        stamp = datetime.now(UK).strftime("%Y-%m-%d-%H%M%S")
+        config_path = growth / (stamp + ".yml")
+        suffix = 2
+        while config_path.exists():
+            config_path = growth / (stamp + "-" + str(suffix) + ".yml")
+            suffix += 1
         # JSON arrays are also YAML flow arrays accepted by ConfigArgParse.
         config_path.write_text("\n".join(key + ": " + json.dumps(value) for key, value in conf.items()) + "\n")
         os.chmod(config_path, 0o600)
@@ -591,6 +603,8 @@ def main():
     parser.add_argument("command", choices=("run", "status", "pause", "resume"))
     parser.add_argument("--account", required=True)
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--additional-run", action="store_true",
+                        help="operator request: run again today within the remaining daily caps")
     args = parser.parse_args()
     if not HANDLE.fullmatch(args.account):
         parser.error("Invalid account")
@@ -623,7 +637,7 @@ def main():
             return 0
         try:
             write_json(growth / "sessions-before.json", read_json(account / "sessions.json", []))
-            return run_session(repo, account, growth)
+            return run_session(repo, account, growth, additional=args.additional_run)
         except Exception as exc:
             write_json(growth / "fault.json", {"at": now(), "reason": str(exc), "reviewRequired": True})
             print("Stopped for review:", exc)
