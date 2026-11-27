@@ -215,6 +215,30 @@ def test_filter_profile_load_fast_exit_without_sleep():
         assert not mock_sleep.called
         assert profile_data.followers is None
         assert profile_data.follow_button_text == views.FollowStatus.NONE
+        assert elem.exists.call_count >= 3
+
+
+def test_filter_profile_waits_a_third_time_for_a_slow_first_profile():
+    from InstaAddict.core.filter import Filter
+
+    mock_device = MagicMock()
+    picture = MagicMock()
+    picture.exists.side_effect = [False, False, True]
+    other = MagicMock()
+    other.exists.return_value = False
+    calls = []
+
+    def find(**kwargs):
+        calls.append(kwargs)
+        return picture if len(calls) == 1 else other
+
+    mock_device.find.side_effect = find
+    with patch("InstaAddict.core.filter.random_sleep"):
+        try:
+            Filter().get_all_data(mock_device)
+        except Exception:
+            pass  # later profile fields are not mocked; only the load waits matter here
+    assert picture.exists.call_count == 3
 
 
 def test_like_in_reels_bypasses_feed_media_container():

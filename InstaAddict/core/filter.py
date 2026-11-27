@@ -670,11 +670,12 @@ class Filter:
                 logger.warning(
                     "Looks like this profile hasn't loaded yet! Wait a little bit more.."
                 )
-                if profile_picture.exists(Timeout.LONG):
+                # The first profile after a cold start often needs a third wait.
+                if profile_picture.exists(Timeout.LONG) or profile_picture.exists(Timeout.LONG):
                     logger.info("Profile loaded!")
                 else:
                     logger.warning(
-                        "Profile not fully loaded after 16s. Skipping profile."
+                        "Profile not fully loaded after 24s. Skipping profile."
                     )
                     unloaded_profile = Profile(
                         mutual_friends=None,
