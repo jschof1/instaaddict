@@ -357,9 +357,17 @@ class CommentUI:
             root, _ = self.snapshot("dismiss-comments")
         if self.nodes(root, "layout_comment_thread_edittext_multiline"):
             raise RuntimeError("Comment sheet did not close after bounded Back presses")
-        if not self.nodes(root, "profile_tab") and self.nodes(root, "row_feed_photo_profile_name"):
+        # A previous post (possibly scrolled past its owner name) can still be on top.
+        for _ in range(4):
+            if self.nodes(root, "profile_tab"):
+                break
             self.guard()
             self.d.press("back")
+            root, _ = self.snapshot("back-to-tabs")
+            if not any(n.get("package") == APP for n in root.iter("node")):
+                self.guard()
+                self.d.shell(["monkey", "-p", APP, "-c", "android.intent.category.LAUNCHER", "1"])
+                root, _ = self.snapshot("relaunch")
         root, _ = self.wait_for("profile-tab", lambda r: bool(self.nodes(r, "profile_tab")))
         self.click("profile_tab", root)
         root, _ = self.wait_for("account", lambda r: bool(self.nodes(r, "action_bar_title")))

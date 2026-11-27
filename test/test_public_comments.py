@@ -414,6 +414,24 @@ class PublicCommentsTests(unittest.TestCase):
                 # The rejected draft never comes back.
                 self.assertNotIn(first["id"], [e["id"] for e in comments.plan(self.growth, DAY, AT)[1]])
 
+    def test_scrolled_post_without_owner_name_is_backed_out_of(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()])
+        device.screen = "scrolled-post"
+        press = device.press
+
+        def back(key):
+            if device.screen == "scrolled-post":
+                device.screen = "home"
+                device.backs += 1
+            else:
+                press(key)
+
+        device.press = back
+        self.run_helper(device)
+        self.assertGreaterEqual(device.backs, 1)
+        self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "posted")
+
     def test_caption_below_the_fold_is_found_by_scrolling(self):
         self.seed([entry()])
         device = FakeDevice(self.growth, [entry()])
