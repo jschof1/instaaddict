@@ -40,6 +40,8 @@ STOP = re.compile(
     r"Could not return from Peek Preview|Can't go back to the profile|"
     r"Multiple consecutive post open failures|Crash saved as", re.I
 )
+# A running bot is a Python interpreter executing run.py --config; shells that merely mention it are not.
+BOT_PROCESS = re.compile(r"\S*python[\d.]*(\s+-\S+)*\s+(\S*/)?run\.py\s+--config\b")
 GIB = 1024 ** 3
 BOOT_ATTEMPTS = 3
 BOOT_TIMEOUT = 240
@@ -391,7 +393,7 @@ def run_session(repo, account, growth, additional=False):
         print("Skipped: emulator is already in use.")
         return 0
     processes = subprocess.check_output(["/bin/ps", "-axo", "command="], text=True)
-    if any("run.py" in line and "--config" in line for line in processes.splitlines()):
+    if any(BOT_PROCESS.match(line.strip()) for line in processes.splitlines()):
         raise ValueError("Another bot process is running")
     filters = yaml.safe_load((account / "filters.yml").read_text())
     if any(value for key, value in filters.items() if key.startswith("comment_") or key == "pm_to_private_or_empty"):

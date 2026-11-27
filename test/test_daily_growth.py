@@ -153,6 +153,14 @@ class DailyGrowthTests(unittest.TestCase):
         self.assertIsNotNone(daily.STOP.search("Fail to like post. Let's continue..."))
         self.assertIsNotNone(daily.STOP.search("Fail to like post via Peek Preview."))
 
+    def test_bot_process_check_ignores_shells_that_mention_it(self):
+        for line in ["/Users/jack/GitHub/instaaddict/.venv/bin/python -u run.py --config /x/2026.yml",
+                     "python3 run.py --config a.yml", "/usr/bin/python3.12 /repo/run.py --config a.yml"]:
+            self.assertIsNotNone(daily.BOT_PROCESS.match(line), line)
+        for line in ['/bin/zsh -c pgrep -fl "daily_growth|run.py --config|qemu-system"',
+                     "grep run.py --config", "/usr/bin/python3 -u scripts/daily_growth.py run --account x"]:
+            self.assertIsNone(daily.BOT_PROCESS.match(line), line)
+
     def test_atomic_private_journal_survives_replacement(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "days/day.json"
