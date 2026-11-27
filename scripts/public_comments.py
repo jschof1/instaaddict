@@ -19,6 +19,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
 
+CAPTION_SCROLLS = 2
 UK = ZoneInfo("Europe/London")
 ACCOUNT = "uk.tradeleads"
 APP = "com.instagram.android"
@@ -110,6 +111,26 @@ def validate_entry(entry):
         raise ValueError("Comment contains a link or sales pitch")
     aware(entry["expiresAt"])
     return match["code"], normalize(entry["text"]).casefold()
+
+
+class PostMismatch(RuntimeError):
+    """The live post no longer matches the prepared draft. Nothing was reserved or typed."""
+
+
+def rejected_ids(growth):
+    path = growth / "comment-rejections.json"
+    data = read_json(path) if path.exists() else {"rejections": []}
+    if not isinstance(data, dict) or not isinstance(data.get("rejections"), list):
+        raise ValueError("Invalid comment rejection record")
+    return {r["id"] for r in data["rejections"]}
+
+
+def reject(growth, entry, day, reason, evidence):
+    path = growth / "comment-rejections.json"
+    data = read_json(path) if path.exists() else {"rejections": []}
+    data["rejections"].append({"id": entry["id"], "handle": entry["handle"], "postUrl": entry["postUrl"],
+                               "day": day, "at": now().isoformat(), "reason": reason, "evidence": evidence})
+    write_json(path, data)
 
 
 def load_ledger(growth, required=False):
@@ -214,6 +235,7 @@ def plan(growth, day=None, at=None):
     if not isinstance(manifest, dict) or not isinstance(manifest.get("comments"), list):
         raise ValueError("Invalid or missing prepared comment queue")
     codes, texts, ids = set(), set(), set()
+    rejected = rejected_ids(growth)
     for intent in ledger["intents"]:
         code, text = validate_entry(intent)
         codes.add(code)
@@ -224,7 +246,7 @@ def plan(growth, day=None, at=None):
         if set(entry) != FIELDS or entry["id"] in ids:
             raise ValueError("Invalid queue fields or duplicate comment id")
         ids.add(entry["id"])
-        if (aware(entry["expiresAt"]) <= at or code in codes or text in texts
+        if (aware(entry["expiresAt"]) <= at or code in codes or text in texts or entry["id"] in rejected
                 or any(i["id"] == entry["id"] for i in ledger["intents"])):
             continue
         pending.append(entry)
@@ -254,6 +276,7 @@ class CommentUI:
         folder.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(folder, 0o700)
         path = folder / (uuid.uuid4().hex + "-" + phase + ".xml")
+        self.last_snapshot = str(path)
         with path.open("w") as stream:
             os.chmod(path, 0o600)
             stream.write(xml)
@@ -302,10 +325,22 @@ class CommentUI:
         root, path = self.wait_for("post", lambda r: bool(self.nodes(r, "row_feed_photo_profile_name")))
         owners = self.nodes(root, "row_feed_photo_profile_name")
         if len(owners) != 1 or owners[0].get("text") != entry["handle"]:
-            raise RuntimeError("Post owner does not match the prepared handle")
+            raise PostMismatch("Post owner does not match the prepared handle")
         caption = normalize(entry["captionSnippet"])
-        if not any(caption in normalize(n.get(k, "")) for n in root.iter("node") for k in ("text", "content-desc")):
-            raise RuntimeError("Post caption does not match the prepared excerpt")
+
+        def has_caption(tree):
+            return any(caption in normalize(n.get(k, "")) for n in tree.iter("node") for k in ("text", "content-desc"))
+
+        # A tall photo or carousel pushes the caption below the screen; scroll the post a little.
+        for _ in range(CAPTION_SCROLLS):
+            if has_caption(root):
+                break
+            self.guard()
+            self.d.swipe_ext("up", scale=0.3)
+            time.sleep(1)
+            root, path = self.snapshot("post-scrolled")
+        if not has_caption(root):
+            raise PostMismatch("Post caption does not match the prepared excerpt")
         self.click("row_feed_button_comment", root)
         return self.wait_for("composer", lambda r: bool(self.nodes(r, "layout_comment_thread_edittext_multiline")))
 
@@ -399,9 +434,18 @@ def run_comments(growth, account, day, device_factory=connect_device):
 
         guard()
         ui = CommentUI(device_factory(), growth, account, guard)
-        for entry in pending[:status["remaining"]]:
+        for entry in pending:
+            if not plan(growth, day)[0]["remaining"]:
+                break
             guard()
-            root, evidence = ui.open_and_validate(entry)
+            try:
+                root, evidence = ui.open_and_validate(entry)
+            except PostMismatch as exc:
+                # Rejected before any reservation or typing: skip this draft and try the next.
+                reject(growth, entry, day, str(exc), ui.last_snapshot)
+                guard()
+                ui.d.press("back")
+                continue
             already_posted = ui.receipt(root, entry)
             # Validation can take time. Recheck expiry, the queue and pause before writing intent.
             current, eligible, ledger = plan(growth, day)

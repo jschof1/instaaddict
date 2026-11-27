@@ -51,6 +51,12 @@ class FakeDevice:
             self.current = next(e for e in self.entries if e["postUrl"] == url)
             self.screen = "post"
 
+    def swipe_ext(self, direction, scale):
+        assert direction == "up"
+        self.swipes = getattr(self, "swipes", 0) + 1
+        if getattr(self, "caption_below", 0):
+            self.caption_below -= 1
+
     def press(self, key):
         assert key == "back"
         self.backs += 1
@@ -68,7 +74,8 @@ class FakeDevice:
                 node("action_bar_title", self.account)
         if self.screen == "post":
             node("row_feed_photo_profile_name", self.owner or self.current["handle"])
-            node("caption", self.caption or self.current["captionSnippet"])
+            if not getattr(self, "caption_below", 0):
+                node("caption", self.caption or self.current["captionSnippet"])
             node("row_feed_button_comment")
         if self.screen == "comments":
             node("layout_comment_thread_edittext_multiline", self.draft or self.hint)
@@ -371,8 +378,7 @@ class PublicCommentsTests(unittest.TestCase):
                 self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "uncertain")
 
     def test_account_caption_owner_draft_reply_or_restriction_aborts_before_send(self):
-        for field, value in [("account", "someone.else"), ("owner", "other.roofer"), ("caption", "Unrelated caption"),
-                             ("draft", "An existing draft"), ("reply", True), ("restriction", "Try again later")]:
+        for field, value in [("account", "someone.else"), ("draft", "An existing draft"), ("reply", True), ("restriction", "Try again later")]:
             with self.subTest(field=field):
                 self.seed([entry()])
                 device = FakeDevice(self.growth, [entry()])
@@ -381,6 +387,40 @@ class PublicCommentsTests(unittest.TestCase):
                     self.run_helper(device)
                 self.assertEqual((device.clicks, device.typed), (0, 0))
                 self.assertEqual(comments.load_ledger(self.growth)["intents"], [])
+
+    def test_changed_owner_or_caption_rejects_that_draft_and_posts_the_next(self):
+        for field, value in [("owner", "other.roofer"), ("caption", "Unrelated caption")]:
+            with self.subTest(field=field):
+                first, second = entry(1), entry(2)
+                (self.growth / "comment-rejections.json").unlink(missing_ok=True)
+                self.seed([first, second])
+                device = FakeDevice(self.growth, [first, second])
+                original = device.dump_hierarchy
+
+                def dump():
+                    if device.current["id"] == first["id"]:
+                        setattr(device, field, value)
+                    else:
+                        setattr(device, field, None)
+                    return original()
+
+                device.dump_hierarchy = dump
+                self.run_helper(device)
+                ledger = comments.load_ledger(self.growth)["intents"]
+                self.assertEqual([(i["id"], i["state"]) for i in ledger], [(second["id"], "posted")])
+                self.assertEqual(device.clicks, 1)
+                rejections = comments.read_json(self.growth / "comment-rejections.json")["rejections"]
+                self.assertEqual([r["id"] for r in rejections], [first["id"]])
+                # The rejected draft never comes back.
+                self.assertNotIn(first["id"], [e["id"] for e in comments.plan(self.growth, DAY, AT)[1]])
+
+    def test_caption_below_the_fold_is_found_by_scrolling(self):
+        self.seed([entry()])
+        device = FakeDevice(self.growth, [entry()])
+        device.caption_below = 1
+        self.run_helper(device)
+        self.assertEqual(device.swipes, 1)
+        self.assertEqual(comments.load_ledger(self.growth)["intents"][0]["state"], "posted")
 
 
 if __name__ == "__main__":
