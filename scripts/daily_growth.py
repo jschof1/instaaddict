@@ -89,6 +89,27 @@ def now():
     return datetime.now(UK).isoformat()
 
 
+AVD_CONFIG = Path.home() / ".android/avd/InstaAddict_UKTL.avd/config.ini"
+
+
+def android_storage_missing():
+    """The AVD lives on an external drive; report its path when that drive is not connected."""
+    try:
+        with AVD_CONFIG.open("rb") as handle:
+            handle.read(1)
+        return None
+    except OSError:
+        return str(AVD_CONFIG)
+
+
+def notify(title, message):
+    try:
+        subprocess.run(["/usr/bin/osascript", "-e", "display notification " + json.dumps(message) + " with title " + json.dumps(title)],
+                       capture_output=True, timeout=10, check=False)
+    except (subprocess.SubprocessError, OSError):
+        pass
+
+
 def emulator_ports_in_use():
     """Check the console and transport even if another ADB server owns the device."""
     for port in (5554, 5555):
@@ -373,6 +394,13 @@ def run_session(repo, account, growth, additional=False):
         write_json(state_path, {"status": "queue_empty_or_budget_used", "checkedAt": now(), "totals": totals, "comments": comments})
         print("No fresh targets or daily budget remains. Refill the reviewed queue when empty.")
         return 0
+    missing = android_storage_missing()
+    if missing:
+        # Not a started day: no journal, so a later slot runs normally once the drive is back.
+        write_json(state_path, {"status": "android_storage_missing_skipped", "checkedAt": now(), "missing": missing})
+        notify("InstaAddict could not start", "Connect the LLM drive: Android data is missing (" + missing + ").")
+        print("Skipped: Android storage is not connected: " + missing)
+        return 1
     free = shutil.disk_usage(repo).free
     if free < 8 * GIB:
         write_json(state_path, {"status": "low_disk_skipped", "checkedAt": now(), "freeGiB": round(free / GIB, 2)})

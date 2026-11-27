@@ -153,6 +153,19 @@ class DailyGrowthTests(unittest.TestCase):
         self.assertIsNotNone(daily.STOP.search("Fail to like post. Let's continue..."))
         self.assertIsNotNone(daily.STOP.search("Fail to like post via Peek Preview."))
 
+    def test_missing_android_drive_skips_without_starting_the_day(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            repo, account, growth = self.lifecycle_fixture(directory)
+            stack.enter_context(patch.object(daily, "android_storage_missing", return_value="/Volumes/LLM/avd/config.ini"))
+            note = stack.enter_context(patch.object(daily, "notify"))
+            spawn = stack.enter_context(patch.object(daily.subprocess, "Popen"))
+            self.assertEqual(daily.run_session(repo, account, growth), 1)
+            spawn.assert_not_called()
+            note.assert_called_once()
+            self.assertEqual(daily.read_json(growth / "state.json")["status"], "android_storage_missing_skipped")
+            self.assertEqual(list((growth / "days").glob("*.json")), [])
+            self.assertFalse((growth / "fault.json").exists())
+
     def test_bot_process_check_ignores_shells_that_mention_it(self):
         for line in ["/Users/jack/GitHub/instaaddict/.venv/bin/python -u run.py --config /x/2026.yml",
                      "python3 run.py --config a.yml", "/usr/bin/python3.12 /repo/run.py --config a.yml"]:
@@ -169,6 +182,11 @@ class DailyGrowthTests(unittest.TestCase):
             self.assertEqual(daily.read_json(path)["status"], "completed")
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def setUp(self):
+        storage = patch.object(daily, "android_storage_missing", return_value=None)
+        storage.start()
+        self.addCleanup(storage.stop)
 
     def lifecycle_fixture(self, directory):
         repo = Path(directory)

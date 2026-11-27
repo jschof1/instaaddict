@@ -222,6 +222,11 @@ Overlapping workers, another bot, an occupied emulator, duplicate days and
 unreviewed faults prevent new actions. A started day is never rerun by a later
 launch.
 
+The AVD and system images live on the external LLM drive. If the AVD config is
+unreadable, the worker shows a macOS notification, records
+`android_storage_missing_skipped` and exits without a day journal, so the 15:00
+slot runs normally once the drive is reconnected.
+
 When all startup attempts fail, Instagram never opened and nothing was reserved.
 The journal records `faultScope: "startup"`, `blocksFutureDays: false` and the
 untouched profiles under `releasedUntouchedTargets`. No `fault.json` is written,
